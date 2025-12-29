@@ -18,11 +18,12 @@ Magic: the Gathering Mana Base Monte Carlo Simulator
 
 IMPORTANT SIMPLIFICATIONS:
 This simulator makes several simplifying assumptions:
-- Deck thinning does not occur (deck size remains constant)
 - Life total is not a concern (no life payments modeled)
-- Fetch lands do not check that fetchable lands remain in the deck
-- Fetch lands do not narrow the user's choice after fetching down to a single type
+- Generic fetch lands (fetch/untapped types) do not actually fetch from the deck
 - All lands in hand are assumed to be distinct playable options
+
+Note: Fetch lands that specify basic types (wilds, fabled) DO fetch from the deck
+and reduce deck size accordingly.
 
 USAGE:
     python mtg_mana_sim.py [filename] [--help]
@@ -66,16 +67,24 @@ LAND TYPES:
     - surveil: Always enters tapped
     - verge: Produces 2 colors, but second color only if there's a shock/dual/surveil
              in play that produces one of the verge's colors (must specify exactly 2 colors)
-    - wilds: Produces WUBRG, always enters tapped (must specify WUBRG)
+    - wilds: Fetches basics from deck, always enters tapped, locks to a single basic
+             type when played (must specify WUBRG)
     - tapped: Generic tapped land, always enters tapped
     - fetch: No restrictions, enters untapped
     - untapped: Generic untapped land, no restrictions, enters untapped
+    - multiversal: Taps for any color but locks to a single choice, enters untapped,
+                   deprioritized for late play (must specify WUBRG)
+    - fabled: Fetches basics from deck, locks to a single basic type, enters untapped
+              if 3+ lands in play
+    - startingtown: Taps for any color including colorless but locks to a single choice,
+                    enters tapped if turn 4+ (must specify WUBRGC)
 
 SETTINGS:
     - cycles: Number of Monte Carlo iterations (default: 20000)
     - play: Whether you're on the play (true/false, default: true)
     - draw: Whether you're on the draw (true/false, default: false)
-      Note: play and draw must be opposite values
+      Note: You can specify just one of play/draw, and the other will be set automatically.
+            If both are specified, they must be opposite values.
     - deck_size or decksize: Total deck size (default: 60)
 
 EXAMPLE INPUT FILE:

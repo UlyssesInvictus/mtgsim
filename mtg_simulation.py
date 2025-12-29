@@ -6,7 +6,10 @@ import random
 from collections import defaultdict
 from typing import List, Dict
 
-from mtg_classes import Land, ManaCost, SlowLand
+from mtg_classes import (
+    Land, ManaCost, SlowLand, MultiversalLand, WildsLand,
+    FabledLand, StartingTownLand, BasicLand
+)
 
 
 class GameState:
@@ -27,15 +30,38 @@ class GameState:
         self.turn = 0
         self.on_play = on_play
 
+        # Track available basics in deck by color
+        self.available_basics = defaultdict(int)
+        for card in self.deck:
+            if card and isinstance(card, BasicLand):
+                colors = card.production.get_all_colors()
+                if len(colors) == 1:
+                    color = list(colors)[0]
+                    self.available_basics[color] += 1
+
         # Draw starting hand
         for _ in range(starting_hand_size):
             if self.deck:
-                self.hand.append(self.deck.pop())
+                card = self.deck.pop()
+                # Update basic tracking
+                if card and isinstance(card, BasicLand):
+                    colors = card.production.get_all_colors()
+                    if len(colors) == 1:
+                        color = list(colors)[0]
+                        self.available_basics[color] -= 1
+                self.hand.append(card)
 
     def draw_card(self):
         """Draw a card from the deck."""
         if self.deck:
-            self.hand.append(self.deck.pop())
+            card = self.deck.pop()
+            # Update basic tracking
+            if card and isinstance(card, BasicLand):
+                colors = card.production.get_all_colors()
+                if len(colors) == 1:
+                    color = list(colors)[0]
+                    self.available_basics[color] -= 1
+            self.hand.append(card)
 
     def start_turn(self):
         """Start a new turn."""
@@ -118,11 +144,12 @@ class GameState:
         if self.played_land_this_turn or not self.hand:
             return False
 
-        # Separate lands that enter tapped vs untapped
-        # Also separate slowlands from other tapped lands (slowlands not prioritized)
-        priority_tapped_lands = []  # Tapped lands to prioritize (non-slowlands)
+        # Separate lands into categories
+        # Deprioritize multiversal lands (play them last unless needed)
+        priority_tapped_lands = []  # Tapped lands to prioritize (non-slowlands, non-multiversal)
         slowlands = []
-        untapped_lands = []
+        untapped_lands = []  # Non-multiversal untapped
+        multiversal_lands = []  # Deprioritized
 
         for card in self.hand:
             # Skip non-land cards
@@ -130,17 +157,38 @@ class GameState:
                 continue
 
             land = card
+
+            # Handle StartingTownLand's turn-based tapped state
+            if isinstance(land, StartingTownLand):
+                land.enters_tapped = self.turn >= 4
+
             will_enter_tapped = land.check_enters_tapped(self.lands_in_play)
-            if will_enter_tapped and isinstance(land, SlowLand):
+
+            # Separate multiversal lands for deprioritization
+            if isinstance(land, MultiversalLand):
+                multiversal_lands.append(land)
+            elif will_enter_tapped and isinstance(land, SlowLand):
                 slowlands.append(land)
             elif will_enter_tapped:
                 priority_tapped_lands.append(land)
             else:
                 untapped_lands.append(land)
 
-        # Check if playing an untapped land or slowland would let us cast a spell this turn
+        # Check if playing any land would let us cast a spell this turn
+        # Check non-multiversal lands first
         best_land = None
         for land in untapped_lands + slowlands:
+            # Lock color for choice-based lands
+            if land.locked_color is None and self._is_choice_land(land):
+                # For fetch lands, only consider colors with available basics
+                available_colors = None
+                if self._is_fetch_land(land):
+                    available_colors = {c for c in land.production.get_all_colors()
+                                       if self.available_basics[c] > 0}
+                land.locked_color = land.choose_color(
+                    self.lands_in_play, self.hand, target_costs, available_colors
+                )
+
             # Simulate playing this land
             self.lands_in_play.append(land)
             self.played_land_this_turn = True
@@ -155,19 +203,77 @@ class GameState:
                 best_land = land
                 break
 
-        # If an untapped land or slowland lets us cast, play it
+        # If no non-multiversal land enables casting, check multiversal lands
+        if not best_land:
+            for land in multiversal_lands:
+                # Lock color for multiversal lands
+                if land.locked_color is None:
+                    # Multiversal lands don't fetch, so no color restriction
+                    land.locked_color = land.choose_color(
+                        self.lands_in_play, self.hand, target_costs
+                    )
+
+                # Simulate playing this land
+                self.lands_in_play.append(land)
+                self.played_land_this_turn = True
+
+                can_cast_any = any(self.can_cast_spell(cost) for cost in target_costs)
+
+                # Undo simulation
+                self.lands_in_play.pop()
+                self.played_land_this_turn = False
+
+                if can_cast_any:
+                    best_land = land
+                    break
+
+        # If a land enables casting, play it
         if best_land:
             self.hand.remove(best_land)
             self.lands_in_play.append(best_land)
             self.played_land_this_turn = True
+
+            # If this is a fetch land, fetch a basic from the deck
+            if self._is_fetch_land(best_land) and best_land.locked_color:
+                self._fetch_basic(best_land.locked_color)
+
             return True
 
-        # Otherwise, prioritize non-slowland tapped lands
+        # Otherwise, play lands in priority order:
+        # 1. Priority tapped lands (non-slowland)
+        # 2. Untapped lands
+        # 3. Slowlands
+        # 4. Multiversal lands (deprioritized)
+
+        chosen = None
+        candidate_lands = None
+
         if priority_tapped_lands:
-            # Among priority tapped lands, pick the one with most color overlap
+            candidate_lands = priority_tapped_lands
+        elif untapped_lands:
+            candidate_lands = untapped_lands
+        elif slowlands:
+            candidate_lands = slowlands
+        elif multiversal_lands:
+            candidate_lands = multiversal_lands
+
+        if candidate_lands:
+            # Lock color for choice-based lands
+            for land in candidate_lands:
+                if land.locked_color is None and self._is_choice_land(land):
+                    # For fetch lands, only consider colors with available basics
+                    available_colors = None
+                    if self._is_fetch_land(land):
+                        available_colors = {c for c in land.production.get_all_colors()
+                                           if self.available_basics[c] > 0}
+                    land.locked_color = land.choose_color(
+                        self.lands_in_play, self.hand, target_costs, available_colors
+                    )
+
+            # Pick one with most color overlap
             if target_costs:
                 scored_lands = []
-                for land in priority_tapped_lands:
+                for land in candidate_lands:
                     max_overlap = max(land.shares_colors_with_cost(cost)
                                      for cost in target_costs)
                     scored_lands.append((max_overlap, land))
@@ -176,39 +282,52 @@ class GameState:
                 scores = [score for score, _ in scored_lands]
                 if len(set(scores)) == 1:
                     # All same, pick randomly
-                    chosen = random.choice(priority_tapped_lands)
+                    chosen = random.choice(candidate_lands)
                 else:
                     # Pick the one with highest score
                     scored_lands.sort(key=lambda x: x[0], reverse=True)
                     chosen = scored_lands[0][1]
             else:
-                chosen = random.choice(priority_tapped_lands)
+                chosen = random.choice(candidate_lands)
 
             self.hand.remove(chosen)
             self.lands_in_play.append(chosen)
             self.played_land_this_turn = True
+
+            # If this is a fetch land, fetch a basic from the deck
+            if self._is_fetch_land(chosen) and chosen.locked_color:
+                self._fetch_basic(chosen.locked_color)
+
             return True
 
-        # No priority tapped lands, play an untapped land or slowland
-        other_lands = untapped_lands + slowlands
-        if other_lands:
-            # Pick one with most color overlap
-            if target_costs:
-                scored_lands = []
-                for land in other_lands:
-                    max_overlap = max(land.shares_colors_with_cost(cost)
-                                     for cost in target_costs)
-                    scored_lands.append((max_overlap, land))
+        return False
 
-                scored_lands.sort(key=lambda x: x[0], reverse=True)
-                chosen = scored_lands[0][1]
-            else:
-                chosen = other_lands[0]
+    def _is_choice_land(self, land: Land) -> bool:
+        """Check if a land requires color locking."""
+        return isinstance(land, (MultiversalLand, WildsLand, FabledLand, StartingTownLand))
 
-            self.hand.remove(chosen)
-            self.lands_in_play.append(chosen)
-            self.played_land_this_turn = True
-            return True
+    def _is_fetch_land(self, land: Land) -> bool:
+        """Check if a land fetches basics from the deck."""
+        return isinstance(land, (WildsLand, FabledLand))
+
+    def _fetch_basic(self, color: str) -> bool:
+        """
+        Fetch a basic of the specified color from the deck.
+        Removes it from the deck to simulate fetching.
+        Returns True if successful, False if no basic of that color remains.
+        """
+        if self.available_basics[color] <= 0:
+            return False
+
+        # Find and remove a basic of the chosen color from the deck
+        for i, card in enumerate(self.deck):
+            if card and isinstance(card, BasicLand):
+                colors = card.production.get_all_colors()
+                if len(colors) == 1 and color in colors:
+                    # Remove this basic from the deck
+                    self.deck.pop(i)
+                    self.available_basics[color] -= 1
+                    return True
 
         return False
 

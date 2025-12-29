@@ -26,6 +26,7 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], Dict[st
         'draw': False,
         'deck_size': 60
     }
+    settings_provided = set()  # Track which settings were explicitly provided
 
     current_section = None
     line_num = 0
@@ -100,6 +101,7 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], Dict[st
                         settings[key] = False
                     else:
                         raise ValueError(f"Invalid boolean value for {key}: {value_str}")
+                    settings_provided.add(key)
                 elif key in ['cycles', 'deck_size', 'decksize']:
                     # Integer settings
                     value = int(value_str)
@@ -127,11 +129,18 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], Dict[st
         print("Run with --help (-h) flag for usage instructions.")
         sys.exit(1)
 
-    # Validate play/draw settings
-    if settings['play'] == settings['draw']:
-        print("Error: 'play' and 'draw' settings must be opposite values.")
-        print("If play=true, draw must be false (or omit both for defaults).")
-        print("Run with --help (-h) flag for usage instructions.")
-        sys.exit(1)
+    # Validate play/draw settings only if both were explicitly provided
+    if 'play' in settings_provided and 'draw' in settings_provided:
+        if settings['play'] == settings['draw']:
+            print("Error: 'play' and 'draw' settings must be opposite values.")
+            print("If play=true, draw must be false (or vice versa).")
+            print("Run with --help (-h) flag for usage instructions.")
+            sys.exit(1)
+    elif 'play' in settings_provided:
+        # Only play was provided, set draw to opposite
+        settings['draw'] = not settings['play']
+    elif 'draw' in settings_provided:
+        # Only draw was provided, set play to opposite
+        settings['play'] = not settings['draw']
 
     return lands, spells, settings

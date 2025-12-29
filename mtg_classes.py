@@ -122,6 +122,7 @@ class Land(ABC):
         self.production = production
         self.count = count
         self.enters_tapped = False
+        self.locked_color = None  # For choice-based lands
 
     @abstractmethod
     def check_enters_tapped(self, lands_in_play: List['Land']) -> bool:
@@ -135,7 +136,76 @@ class Land(ABC):
         """
         if just_played and self.enters_tapped:
             return set()
+
+        # If this land has been locked to a specific color, return only that
+        if self.locked_color:
+            return {self.locked_color}
+
         return self.production.get_all_colors()
+
+    def choose_color(self, lands_in_play: List['Land'], hand: List, target_costs: List,
+                     available_colors: Set[str] = None) -> str:
+        """
+        Choose a color for this land to be locked to.
+        Uses heuristic: prefer colors not in play/hand, prefer colors in target spells,
+        prefer least redundant, random tiebreak.
+        """
+        # Get possible colors
+        possible_colors = available_colors if available_colors else self.production.get_all_colors()
+        if not possible_colors:
+            return None
+
+        # Get colors already produced by lands in play
+        colors_in_play = set()
+        for land in lands_in_play:
+            if land is not self:
+                colors_in_play.update(land.get_available_mana(lands_in_play, False))
+
+        # Get colors in hand
+        colors_in_hand = set()
+        for card in hand:
+            if card and isinstance(card, Land) and card is not self:
+                colors_in_hand.update(card.production.get_all_colors())
+
+        # Get colors needed for target spells
+        spell_colors = set()
+        for cost in target_costs:
+            spell_colors.update(cost.colored.keys())
+            for _, color_part in cost.hybrid:
+                if '/' in color_part:
+                    spell_colors.update(color_part.split('/'))
+                else:
+                    spell_colors.add(color_part)
+
+        # Score each possible color
+        scores = {}
+        for color in possible_colors:
+            score = 0
+
+            # Prefer colors needed for spells
+            if color in spell_colors:
+                score += 10
+
+            # Prefer colors not in play
+            if color not in colors_in_play:
+                score += 5
+
+            # Prefer colors not in hand
+            if color not in colors_in_hand:
+                score += 3
+
+            # Count how many lands in play produce this color (lower is better)
+            redundancy = sum(1 for land in lands_in_play
+                           if land is not self and color in land.get_available_mana(lands_in_play, False))
+            score -= redundancy
+
+            scores[color] = score
+
+        # Choose the color with highest score (random tiebreak)
+        import random
+        max_score = max(scores.values())
+        best_colors = [c for c, s in scores.items() if s == max_score]
+        return random.choice(best_colors)
 
     def shares_colors_with_cost(self, cost: ManaCost) -> int:
         """Count how many colors this land shares with a spell cost."""
@@ -275,7 +345,10 @@ class BasicLand(Land):
 
 
 class WildsLand(Land):
-    """Wilds: taps for WUBRG, always enters tapped."""
+    """
+    Wilds: fetches basics from deck, always enters tapped.
+    Must be locked to a single basic type when played.
+    """
 
     def __init__(self, production: ManaProduction, count: int):
         super().__init__('wilds', production, count)
@@ -291,6 +364,17 @@ class WildsLand(Land):
         colors = production.get_all_colors()
         if colors != {'W', 'U', 'B', 'R', 'G'}:
             raise ValueError("Wilds must produce WUBRG")
+
+    def get_available_mana(self, lands_in_play: List['Land'], just_played: bool) -> Set[str]:
+        """Wilds lands lock to a single basic type when played."""
+        if just_played and self.enters_tapped:
+            return set()
+
+        if self.locked_color:
+            return {self.locked_color}
+
+        # Should be locked by the time we query
+        return self.production.get_all_colors()
 
 
 class TappedLand(Land):
@@ -329,6 +413,97 @@ class UntappedLand(Land):
         return False
 
 
+class MultiversalLand(Land):
+    """
+    Multiversal land: can tap for any color but must be locked to a single choice.
+    Should be played late unless needed to cast a spell.
+    """
+
+    def __init__(self, production: ManaProduction, count: int):
+        super().__init__('multiversal', production, count)
+        self.enters_tapped = False
+
+    def check_enters_tapped(self, lands_in_play: List['Land']) -> bool:
+        self.enters_tapped = False
+        return False
+
+    @staticmethod
+    def validate_production(production: ManaProduction) -> None:
+        """Validate that multiversal produces WUBRG."""
+        colors = production.get_all_colors()
+        if colors != {'W', 'U', 'B', 'R', 'G'}:
+            raise ValueError("Multiversal lands must produce WUBRG")
+
+    def get_available_mana(self, lands_in_play: List['Land'], just_played: bool) -> Set[str]:
+        """For multiversal lands, lock to a color when first getting available mana."""
+        if just_played and self.enters_tapped:
+            return set()
+
+        # If already locked, return that color
+        if self.locked_color:
+            return {self.locked_color}
+
+        # For multiversal lands, return all colors (caller should lock it)
+        return self.production.get_all_colors()
+
+
+class FabledLand(Land):
+    """
+    Fabled land: fetches basics, enters untapped if 3+ lands in play.
+    Must be locked to a single basic type when played.
+    """
+
+    def __init__(self, production: ManaProduction, count: int):
+        super().__init__('fabled', production, count)
+
+    def check_enters_tapped(self, lands_in_play: List['Land']) -> bool:
+        self.enters_tapped = len(lands_in_play) < 3
+        return self.enters_tapped
+
+    def get_available_mana(self, lands_in_play: List['Land'], just_played: bool) -> Set[str]:
+        """Fabled lands lock to a single color (basic type) when played."""
+        if just_played and self.enters_tapped:
+            return set()
+
+        if self.locked_color:
+            return {self.locked_color}
+
+        # Should be locked by the time we query
+        return self.production.get_all_colors()
+
+
+class StartingTownLand(Land):
+    """
+    Starting town land: taps for WUBRGC, enters tapped if turn 4+.
+    Must be locked to a single choice when played.
+    """
+
+    def __init__(self, production: ManaProduction, count: int):
+        super().__init__('startingtown', production, count)
+        self.enters_tapped = False
+
+    def check_enters_tapped(self, lands_in_play: List['Land']) -> bool:
+        # This will be set by GameState based on turn count
+        return self.enters_tapped
+
+    @staticmethod
+    def validate_production(production: ManaProduction) -> None:
+        """Validate that starting town produces WUBRGC."""
+        colors = production.get_all_colors()
+        if colors != {'W', 'U', 'B', 'R', 'G', 'C'}:
+            raise ValueError("Starting town lands must produce WUBRGC")
+
+    def get_available_mana(self, lands_in_play: List['Land'], just_played: bool) -> Set[str]:
+        """Starting town lands lock to a single color when played."""
+        if just_played and self.enters_tapped:
+            return set()
+
+        if self.locked_color:
+            return {self.locked_color}
+
+        return self.production.get_all_colors()
+
+
 # Map of land type names to classes
 LAND_TYPES = {
     'shock': ShockLand,
@@ -342,4 +517,7 @@ LAND_TYPES = {
     'tapped': TappedLand,
     'fetch': FetchLand,
     'untapped': UntappedLand,
+    'multiversal': MultiversalLand,
+    'fabled': FabledLand,
+    'startingtown': StartingTownLand,
 }

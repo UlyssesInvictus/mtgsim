@@ -1,0 +1,17 @@
+LANDS
+tapped RW 1
+tapped UG 1
+tapped UB 1
+tapped GR 1
+basic G 7
+basic U 4
+basic R 2
+
+SPELLS
+UG
+2RR
+
+SETTINGS
+draw true
+play false
+decksize 40

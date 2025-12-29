@@ -8,7 +8,8 @@ This tool simulates thousands of games to calculate the likelihood of having the
 
 ## Features
 
-- **Multiple Land Types**: Supports 11 different land types including basics, shocks, duals, fastlands, slowlands, fetchlands, and more
+- **Multiple Land Types**: Supports 14 different land types including basics, shocks, duals, fastlands, slowlands, fetchlands, and more
+- **Choice-Based Lands**: Intelligent color selection for lands that must lock to a single color (multiversal, wilds, fabled, starting town)
 - **Complex Mana Costs**: Handles generic mana, colored mana, and hybrid mana costs
 - **Intelligent Play Strategy**: Automatically prioritizes land plays based on spell castability and land types
 - **Configurable Settings**: Customize Monte Carlo cycles, play/draw position, and deck size
@@ -18,11 +19,11 @@ This tool simulates thousands of games to calculate the likelihood of having the
 
 This simulator makes several simplifying assumptions:
 
-- **Deck thinning does not occur** (deck size remains constant, apart from draws)
 - **Life total is not a concern** (no life payments modeled)
-- **Fetch lands do not check** that fetchable lands remain in the deck
-- **Fetch lands do not narrow** the user's choice after fetching down to a single type
+- **Generic fetch lands** (fetch/untapped types) do not actually fetch from the deck
 - **All lands in hand** are assumed to be distinct playable options
+
+Note: Fetch lands that specify basic types (wilds, fabled) DO fetch from the deck and reduce deck size accordingly.
 
 ## Installation
 
@@ -78,19 +79,22 @@ SETTINGS
 
 ### Land Types
 
-| Type       | Behavior                                                                                                                                                           |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `basic`    | Produces one color, enters untapped (must specify only 1 color)                                                                                                    |
-| `shock`    | Produces specified colors, enters untapped                                                                                                                         |
-| `dual`     | Same as shock                                                                                                                                                      |
-| `fastland` | Enters tapped if 3+ lands already in play                                                                                                                          |
-| `slowland` | Enters tapped if 2 or fewer lands in play                                                                                                                          |
-| `surveil`  | Always enters tapped                                                                                                                                               |
-| `verge`    | Produces 2 colors, but second color only available if there's a shock/dual/surveil in play that produces one of the verge's colors (must specify exactly 2 colors) |
-| `wilds`    | Produces WUBRG, always enters tapped (must specify WUBRG)                                                                                                          |
-| `tapped`   | Generic tapped land, always enters tapped                                                                                                                          |
-| `fetch`    | No restrictions, enters untapped                                                                                                                                   |
-| `untapped` | Generic untapped land, no restrictions, enters untapped                                                                                                            |
+| Type           | Behavior                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `basic`        | Produces one color, enters untapped (must specify only 1 color)                                                                                                    |
+| `shock`        | Produces specified colors, enters untapped                                                                                                                         |
+| `dual`         | Same as shock                                                                                                                                                      |
+| `fastland`     | Enters tapped if 3+ lands already in play                                                                                                                          |
+| `slowland`     | Enters tapped if 2 or fewer lands in play                                                                                                                          |
+| `surveil`      | Always enters tapped                                                                                                                                               |
+| `verge`        | Produces 2 colors, but second color only available if there's a shock/dual/surveil in play that produces one of the verge's colors (must specify exactly 2 colors) |
+| `wilds`        | Fetches basics from deck, always enters tapped, locks to a single basic type when played (must specify WUBRG)                                                      |
+| `tapped`       | Generic tapped land, always enters tapped                                                                                                                          |
+| `fetch`        | No restrictions, enters untapped                                                                                                                                   |
+| `untapped`     | Generic untapped land, no restrictions, enters untapped                                                                                                            |
+| `multiversal`  | Taps for any color but locks to a single choice, enters untapped, deprioritized for late play (must specify WUBRG)                                                 |
+| `fabled`       | Fetches basics from deck, locks to a single basic type, enters untapped if 3+ lands in play                                                                        |
+| `startingtown` | Taps for any color including colorless but locks to a single choice, enters tapped if turn 4+ (must specify WUBRGC)                                                |
 
 ### Settings
 
@@ -175,10 +179,24 @@ The test suite includes:
 
 The simulator uses an intelligent land-playing strategy:
 
-1. **Check for immediate casting**: First checks if playing any land would enable casting a target spell this turn
-2. **Prioritize tapped lands**: Prioritizes playing lands that enter tapped (except slowlands) to save untapped lands for future turns
+1. **Check for immediate casting**: First checks if playing any land would enable casting a target spell this turn. If a land enables casting, it's played immediately (multiversal lands are checked last in this phase).
+2. **Priority-based selection**: If no land enables casting, plays lands in the following priority order:
+   - Priority tapped lands (non-slowlands, non-multiversal)
+   - Untapped lands (non-multiversal)
+   - Slowlands
+   - Multiversal lands (deprioritized for late play)
 3. **Color optimization**: Among lands of the same priority, chooses the one that shares the most colors with target spells
 4. **Random tiebreaking**: If multiple lands are equally good, randomly selects one
+
+### Choice-Based Land Color Selection
+
+For lands that must lock to a single color (multiversal, wilds, fabled, starting town), the simulator uses an intelligent heuristic:
+
+- **+10 points**: Colors needed for target spells
+- **+5 points**: Colors not currently produced by lands in play
+- **+3 points**: Colors not available in hand
+- **-1 point per land**: Redundancy penalty (existing lands producing that color)
+- **Random tiebreak**: Among highest-scoring colors
 
 **Note**: Slowlands are not prioritized for early play since they enter tapped when you need them to enter untapped (turn 1-3).
 
@@ -189,6 +207,8 @@ This is a simulation tool with room for enhancement. Potential improvements incl
 - Mulligan strategy simulation
 - More sophisticated land sequencing
 - Deck thinning simulation for fetch lands
+- Full fetchland support with proper fetching mechanics (tracking which lands can be fetched, validating fetch targets remain in deck)
+- Better fetch heuristics (optimal fetch target selection based on future spell needs, color fixing priorities, and deck composition)
 
 ## License
 
