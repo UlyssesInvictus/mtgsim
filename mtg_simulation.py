@@ -8,7 +8,7 @@ from typing import List, Dict
 
 from mtg_classes import (
     Land, ManaCost, SlowLand, MultiversalLand, WildsLand,
-    FabledLand, StartingTownLand, BasicLand
+    FabledLand, StartingTownLand, BasicLand, Cycler
 )
 
 
@@ -21,56 +21,143 @@ class GameState:
         Initialize game state.
         Deck should contain Land objects and None values (non-lands).
         """
+        # Store original deck composition for calculating available basics
+        self.original_deck = deck[:]
+
         self.deck = deck[:]
         random.shuffle(self.deck)
 
         self.hand = []
         self.lands_in_play = []
         self.played_land_this_turn = False
+        self.cycled_lands_this_turn = []  # Track lands cycled this turn (enter tapped)
         self.turn = 0
         self.on_play = on_play
+        self.mulligans_taken = 0
 
-        # Track available basics in deck by color
-        self.available_basics = defaultdict(int)
-        for card in self.deck:
-            if card and isinstance(card, BasicLand):
-                colors = card.production.get_all_colors()
-                if len(colors) == 1:
-                    color = list(colors)[0]
-                    self.available_basics[color] += 1
-
-        # Draw starting hand
-        for _ in range(starting_hand_size):
-            if self.deck:
-                card = self.deck.pop()
-                # Update basic tracking
-                if card and isinstance(card, BasicLand):
-                    colors = card.production.get_all_colors()
-                    if len(colors) == 1:
-                        color = list(colors)[0]
-                        self.available_basics[color] -= 1
-                self.hand.append(card)
+        # Draw starting hand and perform mulligans
+        self._draw_opening_hand(starting_hand_size)
 
     def draw_card(self):
         """Draw a card from the deck."""
         if self.deck:
             card = self.deck.pop()
-            # Update basic tracking
-            if card and isinstance(card, BasicLand):
-                colors = card.production.get_all_colors()
-                if len(colors) == 1:
-                    color = list(colors)[0]
-                    self.available_basics[color] -= 1
             self.hand.append(card)
 
     def start_turn(self):
         """Start a new turn."""
         self.turn += 1
         self.played_land_this_turn = False
+        self.cycled_lands_this_turn = []
 
         # Draw a card (skip first draw if on the play)
         if not (self.on_play and self.turn == 1):
             self.draw_card()
+
+    def _draw_opening_hand(self, hand_size: int):
+        """Draw opening hand and perform mulligans as needed."""
+        # Draw initial 7 cards
+        for _ in range(7):
+            if self.deck:
+                card = self.deck.pop()
+                self.hand.append(card)
+
+        # Perform mulligans
+        while self._should_mulligan():
+            self._mulligan()
+
+        # After all mulligans, bottom cards as needed
+        cards_to_bottom = self.mulligans_taken
+        for _ in range(cards_to_bottom):
+            if self.hand:
+                self._bottom_card()
+
+    def _should_mulligan(self) -> bool:
+        """Decide whether to mulligan based on current hand."""
+        hand_size = len(self.hand)
+        land_count = sum(1 for card in self.hand if card and isinstance(card, Land))
+
+        # First two mulligans (7 and 6 card hands): mulligan if 1 or less lands, or 6+ lands
+        if self.mulligans_taken <= 1:
+            return land_count <= 1 or land_count >= 6
+
+        # Third mulligan (5 card hand): only mulligan if 0 lands or all lands
+        if self.mulligans_taken == 2:
+            return land_count == 0 or land_count == hand_size
+
+        # After that (4 cards or less): keep any hand
+        return False
+
+    def _mulligan(self):
+        """Perform a mulligan: shuffle hand back, redraw 7."""
+        self.mulligans_taken += 1
+
+        # Put hand back into deck
+        for card in self.hand:
+            self.deck.append(card)
+
+        self.hand = []
+
+        # Shuffle deck
+        random.shuffle(self.deck)
+
+        # Draw 7 new cards
+        for _ in range(7):
+            if self.deck:
+                card = self.deck.pop()
+                self.hand.append(card)
+
+    def _bottom_card(self):
+        """Put a card from hand on the bottom of the deck."""
+        if not self.hand:
+            return
+
+        # Prioritize bottoming non-lands
+        non_lands = [card for card in self.hand if not card or not isinstance(card, Land)]
+        if non_lands:
+            card_to_bottom = random.choice(non_lands)
+        else:
+            # All lands, pick randomly
+            card_to_bottom = random.choice(self.hand)
+
+        self.hand.remove(card_to_bottom)
+        self.deck.insert(0, card_to_bottom)  # Insert at beginning (bottom)
+
+    def _shuffle_deck(self):
+        """Shuffle the deck (called after fetching)."""
+        random.shuffle(self.deck)
+
+    def _get_available_basics(self) -> Dict[str, int]:
+        """
+        Compute available basics remaining in deck.
+        Returns dict mapping color -> count.
+        """
+        # Count basics in original deck
+        basics_by_color = defaultdict(int)
+        for card in self.original_deck:
+            if card and isinstance(card, BasicLand):
+                colors = card.production.get_all_colors()
+                if len(colors) == 1:
+                    color = list(colors)[0]
+                    basics_by_color[color] += 1
+
+        # Subtract basics in play
+        for land in self.lands_in_play:
+            if isinstance(land, BasicLand):
+                colors = land.production.get_all_colors()
+                if len(colors) == 1:
+                    color = list(colors)[0]
+                    basics_by_color[color] -= 1
+
+        # Subtract basics in hand
+        for card in self.hand:
+            if card and isinstance(card, BasicLand):
+                colors = card.production.get_all_colors()
+                if len(colors) == 1:
+                    color = list(colors)[0]
+                    basics_by_color[color] -= 1
+
+        return basics_by_color
 
     def can_cast_spell(self, cost: ManaCost) -> bool:
         """Check if we can cast a spell with the given cost."""
@@ -79,7 +166,9 @@ class GameState:
 
         for i, land in enumerate(self.lands_in_play):
             just_played = (i == len(self.lands_in_play) - 1 and self.played_land_this_turn)
-            colors = land.get_available_mana(self.lands_in_play[:i], just_played)
+            # Also check if this land was cycled this turn (enters tapped)
+            just_cycled = land in self.cycled_lands_this_turn
+            colors = land.get_available_mana(self.lands_in_play[:i], just_played or just_cycled)
             if colors:  # Land can produce mana
                 mana_sources.append(colors)
 
@@ -183,8 +272,9 @@ class GameState:
                 # For fetch lands, only consider colors with available basics
                 available_colors = None
                 if self._is_fetch_land(land):
+                    available_basics = self._get_available_basics()
                     available_colors = {c for c in land.production.get_all_colors()
-                                       if self.available_basics[c] > 0}
+                                       if available_basics[c] > 0}
                 land.locked_color = land.choose_color(
                     self.lands_in_play, self.hand, target_costs, available_colors
                 )
@@ -264,8 +354,9 @@ class GameState:
                     # For fetch lands, only consider colors with available basics
                     available_colors = None
                     if self._is_fetch_land(land):
+                        available_basics = self._get_available_basics()
                         available_colors = {c for c in land.production.get_all_colors()
-                                           if self.available_basics[c] > 0}
+                                           if available_basics[c] > 0}
                     land.locked_color = land.choose_color(
                         self.lands_in_play, self.hand, target_costs, available_colors
                     )
@@ -314,9 +405,11 @@ class GameState:
         """
         Fetch a basic of the specified color from the deck.
         Removes it from the deck to simulate fetching.
+        Shuffles the deck after fetching.
         Returns True if successful, False if no basic of that color remains.
         """
-        if self.available_basics[color] <= 0:
+        available_basics = self._get_available_basics()
+        if available_basics[color] <= 0:
             return False
 
         # Find and remove a basic of the chosen color from the deck
@@ -326,26 +419,72 @@ class GameState:
                 if len(colors) == 1 and color in colors:
                     # Remove this basic from the deck
                     self.deck.pop(i)
-                    self.available_basics[color] -= 1
+                    # Shuffle deck after fetching
+                    self._shuffle_deck()
                     return True
 
         return False
 
+    def cycle_cyclers(self, target_costs: List[ManaCost]):
+        """
+        Cycle any eligible cyclers in hand.
+        This should be called before deciding which land to play.
+        """
+        cyclers_in_hand = [card for card in self.hand if isinstance(card, Cycler)]
 
-def run_simulation(lands: List[Land], spells: List[ManaCost],
+        for cycler in cyclers_in_hand:
+            # Check if we have enough lands to cycle
+            if len(self.lands_in_play) >= cycler.cycling_cost:
+                # Get the color this cycler produces
+                colors = cycler.production.get_all_colors()
+                if len(colors) != 1:
+                    continue  # Should not happen due to validation, but be safe
+
+                color = list(colors)[0]
+
+                # Check if we have a basic of this color in the deck
+                available_basics = self._get_available_basics()
+                if available_basics[color] <= 0:
+                    continue  # Can't cycle if no basics available
+
+                # Find and fetch the basic from the deck
+                fetched_basic = None
+                for i, card in enumerate(self.deck):
+                    if card and isinstance(card, BasicLand):
+                        card_colors = card.production.get_all_colors()
+                        if len(card_colors) == 1 and color in card_colors:
+                            # Remove this basic from the deck
+                            fetched_basic = self.deck.pop(i)
+                            # Shuffle deck after fetching
+                            self._shuffle_deck()
+                            break
+
+                if fetched_basic:
+                    # Remove cycler from hand
+                    self.hand.remove(cycler)
+
+                    # Add the fetched basic to lands in play
+                    self.lands_in_play.append(fetched_basic)
+
+                    # Mark it as cycled this turn (enters tapped)
+                    self.cycled_lands_this_turn.append(fetched_basic)
+
+
+def run_simulation(lands: List[Land], spells: List[ManaCost], cyclers: List[Cycler],
                    max_turn: int, cycles: int, deck_size: int = 60,
                    on_play: bool = True) -> List[Dict[int, float]]:
     """
     Run Monte Carlo simulation.
     Returns list of dicts (one per spell) mapping turn -> success probability.
     """
-    # Build full deck with lands and non-lands (represented as None)
+    # Build full deck with lands, cyclers, and non-lands (represented as None)
     num_lands = len(lands)
-    num_nonlands = deck_size - num_lands
+    num_cyclers = len(cyclers)
+    num_nonlands = deck_size - num_lands - num_cyclers
     if num_nonlands < 0:
-        raise ValueError(f"Too many lands ({num_lands}) for deck size ({deck_size})")
+        raise ValueError(f"Too many lands ({num_lands}) and cyclers ({num_cyclers}) for deck size ({deck_size})")
 
-    full_deck = lands + [None] * num_nonlands
+    full_deck = lands + cyclers + [None] * num_nonlands
 
     # Track success by spell and turn
     success_by_spell_turn = [defaultdict(int) for _ in spells]
@@ -361,6 +500,8 @@ def run_simulation(lands: List[Land], spells: List[ManaCost],
 
         for turn in range(1, max_turn + 1):
             game.start_turn()
+            # Cycle eligible cyclers before deciding which land to play
+            game.cycle_cyclers(spells)
             game.play_land_optimally(spells)
 
             # Check each spell individually

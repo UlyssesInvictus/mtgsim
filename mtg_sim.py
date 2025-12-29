@@ -16,91 +16,61 @@ def print_help():
     help_text = """
 Magic: the Gathering Mana Base Monte Carlo Simulator
 
-IMPORTANT SIMPLIFICATIONS:
-This simulator makes several simplifying assumptions:
-- Life total is not a concern (no life payments modeled)
-- Generic fetch lands (fetch/untapped types) do not actually fetch from the deck
-- All lands in hand are assumed to be distinct playable options
-
-Note: Fetch lands that specify basic types (wilds, fabled) DO fetch from the deck
-and reduce deck size accordingly.
-
 USAGE:
-    python mtg_mana_sim.py [filename] [--help]
+    python mtg_sim.py [filename] [--help]
 
     filename: Path to input file (default: inputs.txt)
     --help, -h: Show this help message
 
 INPUT FILE FORMAT:
 
-LANDS
-<land_type> <mana_production> <count>
-...
+Section headers (LANDS, SPELLS, CYCLERS, SETTINGS) are optional. Use blank lines to
+separate sections if headers are omitted.
 
-SPELLS
-<mana_cost>
-...
+    <land_type> <mana_production> <count>
+    ...
 
-SETTINGS
-cycles <number>
+    <mana_cost>
+    ...
 
-MANA PRODUCTION FORMAT:
-    - Single color: W, U, B, R, G, C (white, blue, black, red, green, colorless)
-    - Multiple colors: WU (produces white AND blue)
-    - Choice of colors: W/U (produces white OR blue)
-    - Complex: {R/U}U (produces red OR blue, AND blue)
+    <mana_production> <cycling_cost> <count>
+    ...
 
-MANA COST FORMAT:
-    - Generic mana: 2, 3, etc. (can be paid with any color)
-    - Colored mana: W, U, B, R, G
-    - Examples:
-        - 2G: 2 generic + 1 green
-        - {1}UB: 1 generic + 1 blue + 1 black
-        - {3/R}{3/W}: (3 generic OR 1 red) AND (3 generic OR 1 white)
+    <setting_name> <value>
+    ...
+
+MANA NOTATION:
+    Colors: W (white), U (blue), B (black), R (red), G (green), C (colorless)
+    Production: WU (AND), W/U (OR), {R/U}U (choice + required)
+    Costs: 2G (generic + colored), {3/R} (hybrid generic/colored)
 
 LAND TYPES:
-    - basic: Produces one color, enters untapped (must specify only 1 color)
-    - shock: Produces specified colors, enters untapped
-    - dual: Same as shock
-    - fastland: Enters tapped if 3+ lands already in play
-    - slowland: Enters tapped if 2 or fewer lands in play
-    - surveil: Always enters tapped
-    - verge: Produces 2 colors, but second color only if there's a shock/dual/surveil
-             in play that produces one of the verge's colors (must specify exactly 2 colors)
-    - wilds: Fetches basics from deck, always enters tapped, locks to a single basic
-             type when played (must specify WUBRG)
-    - tapped: Generic tapped land, always enters tapped
-    - fetch: No restrictions, enters untapped
-    - untapped: Generic untapped land, no restrictions, enters untapped
-    - multiversal: Taps for any color but locks to a single choice, enters untapped,
-                   deprioritized for late play (must specify WUBRG)
-    - fabled: Fetches basics from deck, locks to a single basic type, enters untapped
-              if 3+ lands in play
-    - startingtown: Taps for any color including colorless but locks to a single choice,
-                    enters tapped if turn 4+ (must specify WUBRGC)
+    basic, shock, dual, fastland, slowland, surveil, verge, wilds, tapped,
+    fetch, untapped, multiversal, fabled, startingtown
+
+CYCLERS:
+    Cards that convert to basics when enough lands are in play
+    cycling_cost = number of lands needed in play to cycle
 
 SETTINGS:
-    - cycles: Number of Monte Carlo iterations (default: 20000)
-    - play: Whether you're on the play (true/false, default: true)
-    - draw: Whether you're on the draw (true/false, default: false)
-      Note: You can specify just one of play/draw, and the other will be set automatically.
-            If both are specified, they must be opposite values.
-    - deck_size or decksize: Total deck size (default: 60)
+    cycles <number>        - Monte Carlo iterations (default: 20000)
+    play <true/false>      - On the play (default: true)
+    draw <true/false>      - On the draw (default: false)
+    deck_size <number>     - Total deck size (default: 60)
 
-EXAMPLE INPUT FILE:
+EXAMPLE:
+    basic W 20
+    shock WU 4
 
-LANDS
-basic W 20
-shock WU 4
+    1WWW
+    2UW
 
-SPELLS
-1WWW
-2UW
+    W 3 2
 
-SETTINGS
-cycles 10000
-play true
-deck_size 60
+    cycles 10000
+
+For full details on land behaviors, mulligan strategy, and algorithm specifics,
+see the README.md file.
 """
     print(help_text)
 
@@ -118,19 +88,21 @@ def main():
         sys.exit(0)
 
     # Parse input file
-    lands, spells, settings = parse_input_file(args.filename)
+    lands, spells, cyclers, settings = parse_input_file(args.filename)
     cycles = settings.get('cycles', 20000)
     on_play = settings.get('play', True)
     deck_size = settings.get('deck_size', 60)
 
-    print(f"Running simulation with {len(lands)} lands and {len(spells)} target spell(s)...")
+    cycler_count = len(cyclers)
+    cycler_msg = f" and {cycler_count} cycler(s)" if cycler_count > 0 else ""
+    print(f"Running simulation with {len(lands)} lands{cycler_msg} and {len(spells)} target spell(s)...")
     print(f"Monte Carlo cycles: {cycles}")
     print(f"On the {'play' if on_play else 'draw'}")
     print()
 
     # Run simulation for turns 1-10
     max_turn = 10
-    probabilities_per_spell = run_simulation(lands, spells, max_turn, cycles,
+    probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn, cycles,
                                             deck_size=deck_size, on_play=on_play)
 
     # Print results for each spell

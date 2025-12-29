@@ -7,6 +7,10 @@ basic G 7
 basic U 4
 basic R 2
 
+CYCLERS
+WUBRG 2 1
+U 2 1
+
 SPELLS
 UG
 2RR

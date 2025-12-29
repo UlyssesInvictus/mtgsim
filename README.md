@@ -1,3 +1,5 @@
+note: yes I used AI for a lot of this, excuse any robot speak + obviously broken code
+
 # MTG Mana Base Simulator
 
 A Monte Carlo simulation tool for analyzing Magic: the Gathering mana bases. This simulator helps you determine the probability of being able to cast specific spells by certain turns, given your deck's land configuration.
@@ -9,21 +11,12 @@ This tool simulates thousands of games to calculate the likelihood of having the
 ## Features
 
 - **Multiple Land Types**: Supports 14 different land types including basics, shocks, duals, fastlands, slowlands, fetchlands, and more
+- **Cycler Support**: Cards that convert to basics from the deck when enough lands are in play
 - **Choice-Based Lands**: Intelligent color selection for lands that must lock to a single color (multiversal, wilds, fabled, starting town)
+- **Mulligan Support**: Automatic mulligan decisions based on hand quality with intelligent card selection
 - **Complex Mana Costs**: Handles generic mana, colored mana, and hybrid mana costs
 - **Intelligent Play Strategy**: Automatically prioritizes land plays based on spell castability and land types
 - **Configurable Settings**: Customize Monte Carlo cycles, play/draw position, and deck size
-- **Statistical Analysis**: Get turn-by-turn probability breakdowns
-
-## Important Simplifications
-
-This simulator makes several simplifying assumptions:
-
-- **Life total is not a concern** (no life payments modeled)
-- **Generic fetch lands** (fetch/untapped types) do not actually fetch from the deck
-- **All lands in hand** are assumed to be distinct playable options
-
-Note: Fetch lands that specify basic types (wilds, fabled) DO fetch from the deck and reduce deck size accordingly.
 
 ## Installation
 
@@ -47,6 +40,10 @@ python mtg_sim.py --help
 
 ### Basic Structure
 
+Section headers (`LANDS`, `SPELLS`, `CYCLERS`, `SETTINGS`) are optional. If not provided, use blank lines to separate sections (first paragraph = lands, second = spells, third = cyclers, fourth = settings).
+
+With headers:
+
 ```
 LANDS
 <land_type> <mana_production> <count>
@@ -56,7 +53,27 @@ SPELLS
 <mana_cost>
 ...
 
+CYCLERS
+<mana_production> <cycling_cost> <count>
+...
+
 SETTINGS
+<setting_name> <value>
+...
+```
+
+Without headers (paragraph-based):
+
+```
+<land_type> <mana_production> <count>
+...
+
+<mana_cost>
+...
+
+<mana_production> <cycling_cost> <count>
+...
+
 <setting_name> <value>
 ...
 ```
@@ -96,6 +113,36 @@ SETTINGS
 | `fabled`       | Fetches basics from deck, locks to a single basic type, enters untapped if 3+ lands in play                                                                        |
 | `startingtown` | Taps for any color including colorless but locks to a single choice, enters tapped if turn 4+ (must specify WUBRGC)                                                |
 
+### Cyclers
+
+Cyclers are cards that can be converted to basic lands from the deck once you have enough lands in play. They represent cards like cycling lands or other mana sources that can be transformed into lands.
+
+**Format**: `<mana_production> <cycling_cost> <count>`
+
+- **mana_production**: The single color of basic land this cycler fetches (must be exactly one color: W, U, B, R, or G)
+- **cycling_cost**: Positive integer representing the number of lands needed in play before this cycler can be converted
+- **count**: Number of these cyclers in the deck
+
+**Behavior**:
+
+- When you have lands in play >= cycling_cost, any eligible cyclers in hand are automatically converted to basics
+- Cycling happens at the start of each turn, before deciding which land to play
+- The fetched basic enters "tapped" for that turn (can't be used to cast spells the same turn it's cycled as a proxy for the mana spent on cycling, but still allowing you to cycle the "previous" turn)
+- Uses the same fetch methodology as wilds/fabled lands (searches deck, removes basic, shuffles)
+
+**Example**:
+
+```
+CYCLERS
+W 3 4
+R 2 2
+```
+
+This means:
+
+- 4 cyclers that fetch white basics when you have 3+ lands in play
+- 2 cyclers that fetch red basics when you have 2+ lands in play
+
 ### Settings
 
 | Setting                   | Type    | Default | Description                                           |
@@ -111,7 +158,8 @@ SETTINGS
 
 ```
 LANDS
-basic W 20
+basic W 15
+basic U 5
 shock WU 4
 fastland UR 3
 surveil BG 2
@@ -119,6 +167,9 @@ surveil BG 2
 SPELLS
 1WWW
 2UW
+
+CYCLERS
+W 3 2
 
 SETTINGS
 cycles 10000
@@ -129,12 +180,12 @@ deck_size 60
 ## Example Output
 
 ```
-Running simulation with 29 lands and 2 target spell(s)...
+Running simulation with 29 lands and 2 cycler(s) and 2 target spell(s)...
 Monte Carlo cycles: 10000
 On the play
 
-Results (probability of casting target spell by turn):
---------------------------------------------------
+Results (probability of casting each spell by turn):
+============================================================
 Turn  1:   0.00%
 Turn  2:  56.23%
 Turn  3:  39.45%
@@ -174,8 +225,18 @@ The test suite includes:
 - **Class Tests**: Testing individual classes and their behaviors
 - **Input Validation Tests**: Testing file parsing and validation
 - **Mana Consumption Tests**: Testing spell casting and mana availability
+-
 
-## Land Playing Strategy
+## Heuristics
+
+This simulator makes some simplifying assumptions:
+
+- **Life total is not a concern** (no life payments modeled)
+- **The only priority is casting the desired spells** We don't care about any sequencing other than those that let us cast our desired spells as soon as possible
+
+To that end, some heuristics are applied to handle different land types but also pilot "intelligently" with those goals in mind.
+
+### Land Playing Strategy
 
 The simulator uses an intelligent land-playing strategy:
 
@@ -188,7 +249,7 @@ The simulator uses an intelligent land-playing strategy:
 3. **Color optimization**: Among lands of the same priority, chooses the one that shares the most colors with target spells
 4. **Random tiebreaking**: If multiple lands are equally good, randomly selects one
 
-### Choice-Based Land Color Selection
+#### Choice-Based Land Color Selection
 
 For lands that must lock to a single color (multiversal, wilds, fabled, starting town), the simulator uses an intelligent heuristic:
 
@@ -200,20 +261,41 @@ For lands that must lock to a single color (multiversal, wilds, fabled, starting
 
 **Note**: Slowlands are not prioritized for early play since they enter tapped when you need them to enter untapped (turn 1-3).
 
+### Mulligan Strategy
+
+The simulator automatically performs mulligans based on opening hand quality:
+
+#### Mulligan Decision Rules
+
+1. **First two mulligans** (7 and 6 card hands):
+
+   - Mulligan if hand has 1 or fewer lands
+   - Mulligan if hand has 6 or more lands
+
+2. **Third mulligan** (5 card hand):
+
+   - Only mulligan if hand has 0 lands or all lands
+
+3. **Fourth mulligan onwards** (4 cards or fewer):
+   - Keep any hand
+
+#### Card Selection for Bottoming
+
+After each mulligan, one card per mulligan is placed on the bottom of the deck:
+
+- **Prioritizes non-lands**: Even though non-optimal for real gameplay, this maximizes mana availability for casting spells
+- **Random selection**: If only lands remain in hand, selects randomly
+
 ## Contributing
 
 This is a simulation tool with room for enhancement. Potential improvements include:
 
-- Mulligan strategy simulation
+- Better mulligan strategies (considering spell curve, specific spell requirements, color requirements)
+- More sophisticated mulligan card selection (keeping lands that match spell colors, keeping early plays)
 - More sophisticated land sequencing
-- Deck thinning simulation for fetch lands
 - Full fetchland support with proper fetching mechanics (tracking which lands can be fetched, validating fetch targets remain in deck)
 - Better fetch heuristics (optimal fetch target selection based on future spell needs, color fixing priorities, and deck composition)
 
 ## License
 
 This project is open source and available for educational and personal use.
-
-## Acknowledgments
-
-Built as a tool for Magic: the Gathering players to optimize their mana bases through statistical analysis.

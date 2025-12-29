@@ -504,6 +504,32 @@ class StartingTownLand(Land):
         return self.production.get_all_colors()
 
 
+class Cycler:
+    """
+    Cycler: A card that can be converted to a basic land from the deck
+    once you have enough lands in play.
+    """
+
+    def __init__(self, production: ManaProduction, cycling_cost: int, count: int):
+        """
+        Initialize a cycler.
+
+        Args:
+            production: The mana production (determines which basic it can fetch)
+            cycling_cost: Number of lands needed in play to cycle
+            count: Number of these cyclers in the deck
+        """
+        self.production = production
+        self.cycling_cost = cycling_cost
+        self.count = count
+
+    @staticmethod
+    def validate_production(production: ManaProduction) -> None:
+        """Validate that cycler produces only one color (basic type)."""
+        if len(production.get_all_colors()) != 1:
+            raise ValueError("Cyclers must produce exactly one color (basic type)")
+
+
 # Map of land type names to classes
 LAND_TYPES = {
     'shock': ShockLand,
