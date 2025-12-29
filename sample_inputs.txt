@@ -1,0 +1,12 @@
+LANDS
+basic W 20
+shock WU 4
+fastland UR 3
+slowland BG 2
+
+SPELLS
+1WWW
+2UW
+
+SETTINGS
+cycles 20000

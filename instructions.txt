@@ -1,0 +1,71 @@
+Original Claude instruction template:
+
+===
+
+I want to program a Python program that handles a Monte Carlo simulation of a Magic: the Gathering (MtG) mana base.
+
+In MtG, spells can be cast using mana produced by lands, which you can activate once a turn. Both spells and lands are a type of card. You can play up to one land per turn, and then the land sticks around. Lands tap for different types of mana and have different types of restrictions that affect the mana they tap for.
+
+I want this program to simulate the likelihood of being able to cast different spells by a certain turn count, using the fact that you draw a certain number of cards to start the game, you draw a card at the start of each turn (but skip your first draw if you're not going first in a two player game), and that there are a certain number of cards in your deck with a certain disribution of lands and spells.
+
+For example, if I have 20 lands that tap for a single white mana, have 40 cards in the deck, am going first (i.e. not first turn draw), then what is the chance that I can cast a spell that costs 1 generic mana (can be paid for using any color of mana) and 3 white mana by turn 5?
+
+This program should take the name of a local text file that specifies the breakdown of lands, the desired spells to be cast, and any other settings. As a default, use the filename "inputs.txt".
+
+The following is the format of the input text file:
+
+===
+
+LANDS
+[repeat for as many lines as user desires:] {land type} {mana production, see below} {count}
+
+SPELLS
+[repeat for as many lines as user desires:] {mana cost, see below}
+
+SETTINGS
+cycles {count}
+
+===
+
+Mana production takes the form of curly bracket separated letters, where the letters are one of WUBRGC (white, blue, black, red, green, colorless -- respectively). The brackets are optional, but can be used to supporting producting multiple mana sources via a forward slash. For example, if the user inputs:
+- W/G: the land produces white or green
+- WG: the land produces white AND green
+- {R/U}U: the land produces red or blue, AND blue
+
+This is only a base template, and some lands will have specific instructions. See below for those instructions.
+
+Spells take a similar form, but also support a basic number to represent generic mana. For example, if the user inputs:
+- 2G: A spell costs 2 generic mana and a green mana
+- {1}UB: A spell costs 1 generic mana, a blue mana, and a black mana
+- {3/R}{3/W}: A spells costs (either 3 generic mana and a red mana) AND (either 3 generic mana and a white mana).
+
+In the settings, cycles are the number of monte carlo iterations that should be run to simulate whether the spell was castable. If it's not provided by the user, it defaults to 20000.
+
+The section titles and settings field names should be case-insensitive. Otherwise if the user passes an invalid input file, produce an error message indicating to the user what required input is missing, or what input line is not parseable, or otherwise what the error is. If there's an error, tell the user they can run the program again with the --help (-h) flag to see instructions.
+
+Support a --help flag that can be passed. If passed, the program simply outputs instructions for how to run the program and the template of the input file. You should provide these instructions.
+
+===
+
+Finally, see the following types of lands. During the simulation, obey these instructions for handling lands. These lands should also be included in the help instructions.
+
+If a land enters tapped, that means it cannot be used the same turn it was played.
+
+shock: Taps for all the colors specified, without restriction.
+dual: Same as shock.
+fastland: Enters tapped if there are 3 or more lands in play already.
+slowland: Enters tapped if there are 2 or less lands in play already.
+surveil: Always enters tapped.
+verge: Will always tap for 2 colors of mana (is invalid if the user specifies more than 2). The second color specified is ONLY permitted if there is another shock, dual, or surveil already in play that taps for one of the colors of mana specified by the verge. For example, if the user specifies verge WR, then the verge only taps for W unless there is a shock dual or surveil that taps for W or R as one of their own options.
+basic: Should only ever be specified as producing one color max, and is an invalid input if more than 1 is specified.
+wilds: Taps for WUBRG, and is invalid if the user specifies anything else. Always enters tapped.
+tapped: Always enters tapped.
+
+===
+
+During the actual simulation, "play" lands by choosing one land a turn that has been "used" (i.e. is no longer in hand and is in play). Prioritize lands that enter tapped, unless playing another land would allow the user to cast one of desired spells that turn. If multiple lands would enter tapped, prioritize the ones that share the most colors with the spells that are desired to be cast. If all tapped lands in hand share the same number of colors with the desired spells, pick one
+randomly. Otherwise, obey any priority instructions for specific lands.
+
+===
+
+Finally, add a basic set of tests around checking for valid input files.
