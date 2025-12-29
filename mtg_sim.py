@@ -121,7 +121,8 @@ def main():
 
     # Run simulation for turns 1-10
     max_turn = 10
-    probabilities_per_spell = run_simulation(lands, spells, max_turn, cycles, on_play=on_play)
+    probabilities_per_spell = run_simulation(lands, spells, max_turn, cycles,
+                                            deck_size=deck_size, on_play=on_play)
 
     # Print results for each spell
     print()
@@ -147,12 +148,7 @@ def main():
         for turn in range(first_turn, min(first_turn + 4, max_turn + 1)):
             prob = probabilities[turn]
             percentage = prob * 100
-            marker = " (first)" if turn == first_turn else ""
-            print(f"  Turn {turn:2d}: {percentage:6.2f}%{marker}")
-
-        # Calculate cumulative probability through displayed turns
-        cumulative = sum(probabilities[turn] for turn in range(first_turn, min(first_turn + 4, max_turn + 1)))
-        print(f"  Cumulative: {cumulative * 100:6.2f}% (turns {first_turn}-{min(first_turn + 3, max_turn)})")
+            print(f"  Turn {turn:2d}: {percentage:6.2f}%")
 
     print("\n" + "=" * 60)
 

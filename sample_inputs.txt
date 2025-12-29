@@ -1,12 +1,22 @@
 LANDS
-basic W 20
-shock WU 4
-fastland UR 3
-slowland BG 2
+basic W 2
+basic R 1
+shock RW 4
+fastland UR 2
+fastland RW 4
+verge WR 2
+verge RU 1
+verge WU 1
+untapped UWBRG 3
+fastland UWRBG 1
+surveil RW 1
+surveil UW 1
+surveil UR 1
 
 SPELLS
-1WWW
-2UW
+RW
+RWU
 
 SETTINGS
 cycles 20000
+decksize 60

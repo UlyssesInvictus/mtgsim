@@ -519,12 +519,13 @@ class TestCommonSenseCastability(unittest.TestCase):
         spells = [ManaCost('WWW')]
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles, on_play=True)
+        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles,
+                                                deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
         # Should be castable by turn 3 in all cases
         # (we have 7 cards initially + 1 on turn 2 + 1 on turn 3 = 9 cards seen)
-        # With 60 basics, we should reliably have 3 lands by turn 3
+        # With 60 W basics in a 60-card deck, we should reliably have 3 lands by turn 3
         self.assertGreater(probabilities[3], 0.95,
             "WWW should be castable on turn 3 with 60 W basics in >95% of games")
 
@@ -534,7 +535,8 @@ class TestCommonSenseCastability(unittest.TestCase):
         spells = [ManaCost('2R')]
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles, on_play=True)
+        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles,
+                                                deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
         # Should never be castable (no red sources)
@@ -548,7 +550,8 @@ class TestCommonSenseCastability(unittest.TestCase):
         spells = [ManaCost('2R')]
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, max_turn=4, cycles=cycles, on_play=True)
+        probabilities_per_spell = run_simulation(lands, spells, max_turn=4, cycles=cycles,
+                                                deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
         # Wilds always enter tapped, so:
@@ -568,7 +571,8 @@ class TestCommonSenseCastability(unittest.TestCase):
         spells = [ManaCost('RRW')]
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles, on_play=True)
+        probabilities_per_spell = run_simulation(lands, spells, max_turn=3, cycles=cycles,
+                                                deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
         # With 60 RW duals (untapped), we should have 3 lands by turn 3 in most games
@@ -585,7 +589,8 @@ class TestCommonSenseCastability(unittest.TestCase):
         spells = [ManaCost('WWRR')]
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, max_turn=4, cycles=cycles, on_play=True)
+        probabilities_per_spell = run_simulation(lands, spells, max_turn=4, cycles=cycles,
+                                                deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
         # On turn 4 we have played 4 lands. The spell needs 2W and 2R.

@@ -12,8 +12,12 @@ from mtg_classes import Land, ManaCost, SlowLand
 class GameState:
     """Represents the state of a game for simulation."""
 
-    def __init__(self, deck: List[Land], starting_hand_size: int = 7,
+    def __init__(self, deck: List, starting_hand_size: int = 7,
                  on_play: bool = True):
+        """
+        Initialize game state.
+        Deck should contain Land objects and None values (non-lands).
+        """
         self.deck = deck[:]
         random.shuffle(self.deck)
 
@@ -120,7 +124,12 @@ class GameState:
         slowlands = []
         untapped_lands = []
 
-        for land in self.hand:
+        for card in self.hand:
+            # Skip non-land cards
+            if card is None or not isinstance(card, Land):
+                continue
+
+            land = card
             will_enter_tapped = land.check_enters_tapped(self.lands_in_play)
             if will_enter_tapped and isinstance(land, SlowLand):
                 slowlands.append(land)
@@ -205,22 +214,31 @@ class GameState:
 
 
 def run_simulation(lands: List[Land], spells: List[ManaCost],
-                   max_turn: int, cycles: int, on_play: bool = True) -> List[Dict[int, float]]:
+                   max_turn: int, cycles: int, deck_size: int = 60,
+                   on_play: bool = True) -> List[Dict[int, float]]:
     """
     Run Monte Carlo simulation.
     Returns list of dicts (one per spell) mapping turn -> success probability.
     """
+    # Build full deck with lands and non-lands (represented as None)
+    num_lands = len(lands)
+    num_nonlands = deck_size - num_lands
+    if num_nonlands < 0:
+        raise ValueError(f"Too many lands ({num_lands}) for deck size ({deck_size})")
+
+    full_deck = lands + [None] * num_nonlands
+
     # Track success by spell and turn
     success_by_spell_turn = [defaultdict(int) for _ in spells]
 
     for cycle in range(cycles):
         # Progress logging
         if (cycle + 1) % 500 == 0:
-            print(f"\r{cycle + 1}", end='', flush=True)
+            print(f"{cycle + 1}", end='', flush=True)
         elif (cycle + 1) % 100 == 0:
             print('.', end='', flush=True)
 
-        game = GameState(lands, on_play=on_play)
+        game = GameState(full_deck, on_play=on_play)
 
         for turn in range(1, max_turn + 1):
             game.start_turn()
