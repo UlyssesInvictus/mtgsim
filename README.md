@@ -1,5 +1,7 @@
 note: yes I used AI for a lot of this, excuse any robot speak + obviously broken code
 
+I make no promises about accuracy (I speedran the code), but it should be close enough to convince you of whatever preexisting biases you want to confirm
+
 # MTG Mana Base Simulator
 
 A Monte Carlo simulation tool for analyzing Magic: the Gathering mana bases. This simulator helps you determine the probability of being able to cast specific spells by certain turns, given your deck's land configuration.
