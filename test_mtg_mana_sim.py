@@ -11,12 +11,13 @@ import os
 import sys
 import tempfile
 import unittest
+import random
 from io import StringIO
 
 from mtg_classes import (
     ManaProduction, ManaCost, LAND_TYPES,
     ShockLand, FastLand, SlowLand, VergeLand, BasicLand,
-    WildsLand, FetchLand, UntappedLand, Cycler
+    WildsLand, FetchLand, UntappedLand, Cycler, Rock
 )
 from mtg_parser import parse_input_file
 from mtg_simulation import GameState, run_simulation
@@ -234,17 +235,17 @@ class TestCyclerClass(unittest.TestCase):
         # Should not raise
         Cycler.validate_production(prod)
 
-    def test_cycler_validation_multiple_colors(self):
-        """Test that cyclers cannot produce multiple colors."""
+    def test_cycler_validation_accepts_multiple_colors(self):
+        """Test that cyclers can produce multiple colors."""
         prod = ManaProduction('WU')
-        with self.assertRaises(ValueError):
-            Cycler.validate_production(prod)
+        # Should not raise - cyclers can have multiple colors
+        Cycler.validate_production(prod)
 
-    def test_cycler_validation_or_colors(self):
-        """Test that cyclers cannot have OR color production."""
+    def test_cycler_validation_accepts_or_colors(self):
+        """Test that cyclers can have OR color production."""
         prod = ManaProduction('W/U')
-        with self.assertRaises(ValueError):
-            Cycler.validate_production(prod)
+        # Should not raise - cyclers can have OR color production
+        Cycler.validate_production(prod)
 
 
 # ============================================================================
@@ -278,10 +279,11 @@ cycles 5000
 """
         path = self.create_temp_file(content)
         try:
-            lands, spells, cyclers, settings = parse_input_file(path)
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
             self.assertEqual(len(lands), 14)  # 10 + 4
             self.assertEqual(len(spells), 2)
             self.assertEqual(len(cyclers), 0)  # No cyclers in this test
+            self.assertEqual(len(rocks), 0)  # No rocks in this test
             self.assertEqual(settings['cycles'], 5000)
         finally:
             os.unlink(path)
@@ -408,10 +410,11 @@ cycles 5000
 """
         path = self.create_temp_file(content)
         try:
-            lands, spells, cyclers, settings = parse_input_file(path)
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
             self.assertEqual(len(lands), 10)
             self.assertEqual(len(spells), 1)
             self.assertEqual(len(cyclers), 0)
+            self.assertEqual(len(rocks), 0)
             self.assertEqual(settings['cycles'], 5000)
         finally:
             os.unlink(path)
@@ -431,9 +434,10 @@ cycles 5000
 """
         path = self.create_temp_file(content)
         try:
-            lands, spells, cyclers, settings = parse_input_file(path)
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
             self.assertEqual(len(lands), 8)
             self.assertEqual(len(cyclers), 0)
+            self.assertEqual(len(rocks), 0)
             # Check that we have the right types
             fetch_count = sum(1 for l in lands if isinstance(l, FetchLand))
             untapped_count = sum(1 for l in lands if isinstance(l, UntappedLand))
@@ -460,10 +464,11 @@ cycles 5000
 """
         path = self.create_temp_file(content)
         try:
-            lands, spells, cyclers, settings = parse_input_file(path)
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
             self.assertEqual(len(lands), 10)
             self.assertEqual(len(spells), 1)
             self.assertEqual(len(cyclers), 5)  # 2 + 3
+            self.assertEqual(len(rocks), 0)
             # Check cycler properties
             w_cyclers = [c for c in cyclers if 'W' in c.production.get_all_colors()]
             r_cyclers = [c for c in cyclers if 'R' in c.production.get_all_colors()]
@@ -474,11 +479,12 @@ cycles 5000
         finally:
             os.unlink(path)
 
-    def test_cyclers_validation_single_color(self):
-        """Test that cyclers must produce exactly one color."""
+    def test_cyclers_accepts_multiple_colors(self):
+        """Test that cyclers can produce multiple colors."""
         content = """
 LANDS
 basic W 10
+basic U 10
 
 SPELLS
 2W
@@ -491,8 +497,9 @@ cycles 5000
 """
         path = self.create_temp_file(content)
         try:
-            with self.assertRaises(SystemExit):
-                parse_input_file(path)
+            # Should not raise - cyclers can have multiple colors
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
+            self.assertEqual(len(cyclers), 2)
         finally:
             os.unlink(path)
 
@@ -613,9 +620,10 @@ class TestCommonSenseCastability(unittest.TestCase):
         lands = [BasicLand(ManaProduction('W'), 1) for _ in range(60)]
         spells = [ManaCost('WWW')]
         cyclers = []
+        rocks = []
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=3, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=3, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
@@ -630,9 +638,10 @@ class TestCommonSenseCastability(unittest.TestCase):
         lands = [BasicLand(ManaProduction('W'), 1) for _ in range(60)]
         spells = [ManaCost('2R')]
         cyclers = []
+        rocks = []
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=3, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=3, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
@@ -646,9 +655,10 @@ class TestCommonSenseCastability(unittest.TestCase):
         lands = [WildsLand(ManaProduction('WUBRG'), 1) for _ in range(60)]
         spells = [ManaCost('2R')]
         cyclers = []
+        rocks = []
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=4, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=4, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
@@ -668,9 +678,10 @@ class TestCommonSenseCastability(unittest.TestCase):
         lands = [ShockLand(ManaProduction('RW'), 1) for _ in range(60)]
         spells = [ManaCost('RRW')]
         cyclers = []
+        rocks = []
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=3, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=3, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
@@ -687,9 +698,10 @@ class TestCommonSenseCastability(unittest.TestCase):
 
         spells = [ManaCost('WWRR')]
         cyclers = []
+        rocks = []
         cycles = 1000
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=4, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=4, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]  # First (and only) spell
 
@@ -708,9 +720,10 @@ class TestCyclerBehavior(unittest.TestCase):
         lands = [BasicLand(ManaProduction('W'), 1) for _ in range(30)]
         cyclers = [Cycler(ManaProduction('W'), 3, 1) for _ in range(30)]
         spells = [ManaCost('WWW')]
+        rocks = []
         cycles = 100
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=4, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=4, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]
 
@@ -726,9 +739,10 @@ class TestCyclerBehavior(unittest.TestCase):
         lands = [BasicLand(ManaProduction('W'), 1) for _ in range(25)]
         cyclers = [Cycler(ManaProduction('W'), 1, 1) for _ in range(5)]
         spells = [ManaCost('WW')]
+        rocks = []
         cycles = 100
 
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=3, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=3, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]
 
@@ -744,15 +758,364 @@ class TestCyclerBehavior(unittest.TestCase):
         lands = [ShockLand(ManaProduction('WU'), 1) for _ in range(30)]
         cyclers = [Cycler(ManaProduction('W'), 2, 1) for _ in range(30)]
         spells = [ManaCost('WW')]
+        rocks = []
         cycles = 100
 
         # This should not crash - cyclers just won't cycle if no basics available
-        probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn=3, cycles=cycles,
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=3, cycles=cycles,
                                                 deck_size=60, on_play=True)
         probabilities = probabilities_per_spell[0]
 
         # Should complete without error
         self.assertGreaterEqual(probabilities[3], 0.0, "Simulation should handle no-basics case")
+
+
+class TestRockClass(unittest.TestCase):
+    """Test Rock class and behavior."""
+
+    def test_rock_creation(self):
+        """Test creating a rock."""
+        cost = ManaCost('{2}')
+        prod = ManaProduction('WUBRG')
+        rock = Rock(cost, prod, False, 1)
+        self.assertEqual(rock.cost.generic, 2)
+        self.assertEqual(rock.production.get_all_colors(), {'W', 'U', 'B', 'R', 'G'})
+        self.assertFalse(rock.is_filterer)
+        self.assertEqual(rock.count, 1)
+
+    def test_filterer_rock_creation(self):
+        """Test creating a filterer rock."""
+        cost = ManaCost('{1}')
+        prod = ManaProduction('WUBRG')
+        rock = Rock(cost, prod, True, 1)
+        self.assertTrue(rock.is_filterer)
+
+
+class TestRockParsing(unittest.TestCase):
+    """Test rock parsing from input files."""
+
+    def create_temp_file(self, content):
+        """Create a temporary file with given content."""
+        fd, path = tempfile.mkstemp(suffix='.txt')
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+        return path
+
+    def test_rocks_parsing(self):
+        """Test parsing rocks from input file."""
+        content = """
+LANDS
+basic W 10
+
+SPELLS
+2W
+
+ROCKS
+{2} WUBRG 2
+{1} WUBRG 1 true
+
+SETTINGS
+cycles 5000
+"""
+        path = self.create_temp_file(content)
+        try:
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
+            self.assertEqual(len(lands), 10)
+            self.assertEqual(len(spells), 1)
+            self.assertEqual(len(cyclers), 0)
+            self.assertEqual(len(rocks), 3)  # 2 + 1
+            # Check rock properties
+            non_filterers = [r for r in rocks if not r.is_filterer]
+            filterers = [r for r in rocks if r.is_filterer]
+            self.assertEqual(len(non_filterers), 2)
+            self.assertEqual(len(filterers), 1)
+            self.assertEqual(non_filterers[0].cost.generic, 2)
+            self.assertEqual(filterers[0].cost.generic, 1)
+        finally:
+            os.unlink(path)
+
+    def test_rocks_optional_filterer_param(self):
+        """Test that isFilterer parameter is optional and defaults to false."""
+        content = """
+LANDS
+basic W 10
+
+SPELLS
+2W
+
+ROCKS
+{2} W 2
+
+SETTINGS
+cycles 5000
+"""
+        path = self.create_temp_file(content)
+        try:
+            lands, spells, cyclers, rocks, settings = parse_input_file(path)
+            self.assertEqual(len(rocks), 2)
+            # Both should be non-filterers (default)
+            for rock in rocks:
+                self.assertFalse(rock.is_filterer)
+        finally:
+            os.unlink(path)
+
+
+class TestRockBehavior(unittest.TestCase):
+    """Test rock game behavior and mechanics."""
+
+    def test_non_filterer_rock_adds_mana(self):
+        """Test that non-filterer rocks add mana."""
+        # 20 W basics + 10 rocks that cost {2} and produce R
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(20)]
+        rocks = [Rock(ManaCost('{2}'), ManaProduction('R'), False, 1) for _ in range(10)]
+        spells = [ManaCost('2R')]  # Need 2 generic + 1 red
+        cyclers = []
+        cycles = 100
+
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=4, cycles=cycles,
+                                                deck_size=60, on_play=True)
+        probabilities = probabilities_per_spell[0]
+
+        # Turn 3: 3 lands (WWW), can cast rock (cost 2W), leaving W + R from rock = can't cast 2R (only 1W + 1R)
+        # Turn 4: 4 lands (WWWW), can cast rock (cost 2W), leaving WW + R from rock = can cast 2R (2W + 1R)
+        # Should be castable by turn 4 in most games
+        self.assertGreater(probabilities[4], 0.50,
+            "Should be able to cast 2R with rock by turn 4")
+
+    def test_filterer_rock_enables_color_fixing(self):
+        """Test that filterer rocks enable mana conversion."""
+        # 20 W basics + 10 filterer rocks that cost {1} and enable WUBRG conversion
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(20)]
+        rocks = [Rock(ManaCost('{1}'), ManaProduction('WUBRG'), True, 1) for _ in range(10)]
+        spells = [ManaCost('2R')]  # Need red but we only have white lands
+        cyclers = []
+        cycles = 100
+
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=4, cycles=cycles,
+                                                deck_size=60, on_play=True)
+        probabilities = probabilities_per_spell[0]
+
+        # Turn 3: 3 W lands, can cast filterer (cost 1W), leaving 2W that can now be "filtered" to any color
+        # So we have 2W that can become 2R, allowing us to cast 2R
+        # Should be castable by turn 3 in many games (with more rocks, probability increases)
+        self.assertGreater(probabilities[3], 0.40,
+            "Should be able to cast 2R with filterer rock by turn 3")
+
+    def test_rock_cost_deducted_same_turn(self):
+        """Test that rock costs are deducted when cast the same turn."""
+        # 30 W basics + 10 rocks that cost {3} and produce R
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(30)]
+        rocks = [Rock(ManaCost('{3}'), ManaProduction('R'), False, 1) for _ in range(10)]
+        spells = [ManaCost('R')]  # Just need 1 red
+        cyclers = []
+        cycles = 100
+
+        probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn=5, cycles=cycles,
+                                                deck_size=60, on_play=True)
+        probabilities = probabilities_per_spell[0]
+
+        # Turn 3: 3 W lands, can't cast rock (needs 3)
+        # Turn 4: 4 W lands, can cast rock (cost 3W), leaving 1W + 1R from rock
+        # But spell needs just R, and we have R from rock, so should be castable
+        # Actually wait - we spend 3W on rock, leaving 1W + 1R = can cast R
+        self.assertGreater(probabilities[4], 0.50,
+            "Should be able to cast R after paying for rock on turn 4")
+
+
+class TestCyclerCorrectBehavior(unittest.TestCase):
+    """Test that cyclers put lands in hand, not in play."""
+
+    def test_cycler_puts_land_in_hand_not_play(self):
+        """Test that cycling a card puts the basic in hand, not in play."""
+        # 20 W basics + 10 cyclers (cycling cost 2)
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(20)]
+        cyclers = [Cycler(ManaProduction('W'), 2, 1) for _ in range(10)]
+        spells = [ManaCost('WW')]
+        rocks = []
+
+        # Build deck manually to ensure we have a cycler in opening hand
+        deck = lands + cyclers + [None] * 30
+        random.shuffle(deck)
+
+        game = GameState(deck, on_play=True)
+
+        # Play turn 1 - play a land
+        game.start_turn()
+        initial_lands_in_play = len(game.lands_in_play)
+        game.play_land_optimally(spells)
+        self.assertEqual(len(game.lands_in_play), initial_lands_in_play + 1, "Should have played 1 land")
+
+        # Turn 2 - play another land (now we have 2 lands)
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Check if we have a cycler in hand
+        cyclers_in_hand = [card for card in game.hand if isinstance(card, Cycler)]
+        if cyclers_in_hand:
+            lands_in_play_before_cycle = len(game.lands_in_play)
+            lands_in_hand_before_cycle = sum(1 for card in game.hand if isinstance(card, BasicLand))
+
+            # Cycle the cycler (we have 2 lands, cycler needs 2)
+            game.cycle_cyclers(spells)
+
+            # After cycling:
+            # - Cycler should be removed from hand
+            # - A basic should be added to hand (not in play)
+            # - Lands in play should be unchanged
+            cyclers_after = [card for card in game.hand if isinstance(card, Cycler)]
+            lands_in_hand_after = sum(1 for card in game.hand if isinstance(card, BasicLand))
+            lands_in_play_after = len(game.lands_in_play)
+
+            # If cycling occurred, cycler count should decrease and basic count in hand should increase
+            if len(cyclers_after) < len(cyclers_in_hand):
+                self.assertEqual(lands_in_play_after, lands_in_play_before_cycle,
+                               "Cycling should not add lands to play")
+                self.assertEqual(lands_in_hand_after, lands_in_hand_before_cycle + 1,
+                               "Cycling should add a basic to hand")
+
+
+class TestRockManaPoolBehavior(unittest.TestCase):
+    """Test that rocks correctly add or filter mana."""
+
+    def test_non_filterer_rock_adds_mana_source(self):
+        """Test that non-filterer rocks add a new mana source."""
+        # 20 W basics + 10 non-filterer rocks that cost {2} and produce R
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(20)]
+        rocks = [Rock(ManaCost('{2}'), ManaProduction('R'), False, 1) for _ in range(10)]
+        spells = [ManaCost('WWR')]  # Need 2W + 1R
+        cyclers = []
+
+        # Build specific deck to test
+        deck = lands + rocks + [None] * 30
+        game = GameState(deck, on_play=True)
+
+        # Turn 1: play 1 land (W)
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Turn 2: play 2nd land (W)
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Turn 3: play 3rd land (W), now have 3W
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Check if we have a rock in hand
+        rocks_in_hand = [card for card in game.hand if isinstance(card, Rock)]
+        if rocks_in_hand:
+            # Cast the rock (costs 2W, produces R)
+            game.cast_rocks(spells)
+
+            # After casting rock:
+            # - We spent 2W, leaving 1W
+            # - Rock adds R
+            # - Total: 1W + 1R mana available
+            # - Can't cast WWR yet (need 2W + 1R)
+            self.assertFalse(game.can_cast_spell(spells[0]),
+                           "Should not be able to cast WWR with only 1W + 1R")
+
+            # Turn 4: play 4th land (W), now have 2W + 1R (from rock)
+            game.start_turn()
+            game.play_land_optimally(spells)
+
+            # Now should be able to cast WWR
+            self.assertTrue(game.can_cast_spell(spells[0]),
+                          "Should be able to cast WWR with 2W + 1R from rock")
+
+    def test_filterer_rock_converts_mana_without_adding_sources(self):
+        """Test that filterer rocks convert existing mana without adding new sources."""
+        # 20 W basics + 10 filterer rocks that cost {1} and enable WUBRG conversion
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(20)]
+        rocks = [Rock(ManaCost('{1}'), ManaProduction('WUBRG'), True, 1) for _ in range(10)]
+        spells = [ManaCost('2R')]  # Need 2 generic + 1 red (we only have white lands)
+        cyclers = []
+
+        # Build specific deck to test
+        deck = lands + rocks + [None] * 30
+        game = GameState(deck, on_play=True)
+
+        # Turn 1: play 1 land (W)
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Turn 2: play 2nd land (W)
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Can't cast 2R with just 2W
+        self.assertFalse(game.can_cast_spell(spells[0]),
+                       "Should not be able to cast 2R with only white mana")
+
+        # Turn 3: play 3rd land (W), now have 3W
+        game.start_turn()
+        game.play_land_optimally(spells)
+
+        # Check if we have a filterer rock in hand
+        rocks_in_hand = [card for card in game.hand if isinstance(card, Rock) and card.is_filterer]
+        if rocks_in_hand:
+            # Cast the filterer (costs 1W)
+            game.cast_rocks(spells)
+
+            # After casting filterer:
+            # - We spent 1W, leaving 2W
+            # - Filterer enables those 2W to be converted to any WUBRG
+            # - So we can now pay 2R for the spell (converting 2W → 2R)
+            self.assertTrue(game.can_cast_spell(spells[0]),
+                          "Should be able to cast 2R after filtering 2W through filterer")
+
+            # Verify that filterer didn't add extra mana sources
+            # We have 3 lands, spent 1 for filterer, should have 2 mana available
+            # This should be exactly enough for 2R, not more
+            expensive_spell = ManaCost('3R')
+            self.assertFalse(game.can_cast_spell(expensive_spell),
+                           "Filterer should not add mana, only convert it")
+
+    def test_filterer_vs_non_filterer_distinction(self):
+        """Test the key difference between filterer and non-filterer rocks."""
+        # Setup: 10 W basics
+        lands = [BasicLand(ManaProduction('W'), 1) for _ in range(10)]
+
+        # Test 1: Non-filterer rock ADDS mana
+        rocks_non_filter = [Rock(ManaCost('{1}'), ManaProduction('R'), False, 1) for _ in range(5)]
+        deck1 = lands + rocks_non_filter + [None] * 45
+        game1 = GameState(deck1, on_play=True)
+
+        # Get 3 lands in play
+        for _ in range(3):
+            game1.start_turn()
+            game1.play_land_optimally([])
+
+        # Cast non-filterer (costs 1, adds R)
+        if any(isinstance(card, Rock) for card in game1.hand):
+            game1.cast_rocks([])
+            # Should have: 3 lands - 1 spent = 2W, + 1R from rock = 3 total mana sources
+            # Count mana sources
+            spell_needing_3 = ManaCost('3')
+            self.assertTrue(game1.can_cast_spell(spell_needing_3),
+                          "Non-filterer rock should add mana (3 total sources)")
+
+        # Test 2: Filterer rock CONVERTS mana (doesn't add)
+        rocks_filter = [Rock(ManaCost('{1}'), ManaProduction('WUBRG'), True, 1) for _ in range(5)]
+        deck2 = lands + rocks_filter + [None] * 45
+        game2 = GameState(deck2, on_play=True)
+
+        # Get 3 lands in play
+        for _ in range(3):
+            game2.start_turn()
+            game2.play_land_optimally([])
+
+        # Cast filterer (costs 1, converts remaining mana)
+        if any(isinstance(card, Rock) and card.is_filterer for card in game2.hand):
+            game2.cast_rocks([])
+            # Should have: 3 lands - 1 spent = 2 mana sources (can be any color via filter)
+            spell_needing_3 = ManaCost('3')
+            self.assertFalse(game2.can_cast_spell(spell_needing_3),
+                           "Filterer rock should NOT add mana (only 2 sources remain)")
+
+            spell_needing_2 = ManaCost('2')
+            self.assertTrue(game2.can_cast_spell(spell_needing_2),
+                          "Filterer should allow casting with 2 converted sources")
 
 
 if __name__ == '__main__':

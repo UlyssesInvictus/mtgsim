@@ -40,7 +40,7 @@ python mtg_sim.py --help
 
 ### Basic Structure
 
-Section headers (`LANDS`, `SPELLS`, `CYCLERS`, `SETTINGS`) are optional. If not provided, use blank lines to separate sections (first paragraph = lands, second = spells, third = cyclers, fourth = settings).
+Section headers (`LANDS`, `SPELLS`, `CYCLERS`, `ROCKS`, `SETTINGS`) are optional. If not provided, use blank lines to separate sections (first paragraph = lands, second = spells, third = cyclers, fourth = rocks, fifth = settings).
 
 With headers:
 
@@ -55,6 +55,10 @@ SPELLS
 
 CYCLERS
 <mana_production> <cycling_cost> <count>
+...
+
+ROCKS
+<mana_cost> <mana_output> <count> [isFilterer]
 ...
 
 SETTINGS
@@ -72,6 +76,9 @@ Without headers (paragraph-based):
 ...
 
 <mana_production> <cycling_cost> <count>
+...
+
+<mana_cost> <mana_output> <count> [isFilterer]
 ...
 
 <setting_name> <value>
@@ -143,6 +150,41 @@ This means:
 - 4 cyclers that fetch white basics when you have 3+ lands in play
 - 2 cyclers that fetch red basics when you have 2+ lands in play
 
+### Rocks
+
+Rocks are mana-producing nonland permanents (traditionally artifacts, but creatures aka dorks get lumped in here, too) that can be cast and then remain in play to produce mana.
+
+**Format**: `<mana_cost> <mana_output> <count> [isFilterer]`
+
+- **mana_cost**: The mana cost to cast this rock (e.g., `{2}`, `{1}`, `{3}`)
+- **mana_output**: The mana this rock can produce (e.g., `WUBRG`, `WU`, `R`)
+- **count**: Number of these rocks in the deck
+- **isFilterer** (optional): Boolean (true/false). If true, rock converts existing mana; if false or omitted, rock adds mana
+
+**Behavior**:
+
+- Rocks are cast after land play but before checking if spells are castable
+- When cast, the rock's cost is deducted from available mana that turn
+- **Non-filterer rocks** (isFilterer = false or omitted): Add their mana production to your available mana pool
+  - Example: A rock with cost `{2}` and output `WUBRG` costs 2 mana to cast, then adds one mana that can be any of WUBRG
+- **Filterer rocks** (isFilterer = true): Enable mana conversion - each of your existing mana sources can now produce any color the filterer allows
+  - Example: A rock with cost `{1}` and output `WUBRG` with isFilterer=true costs 1 mana to cast, then allows you to "filter" any of your other mana into WUBRG colors
+
+**Example**:
+
+```
+ROCKS
+{2} WUBRG 2
+{1} WUBRG 1 true
+{3} C 1 false
+```
+
+This means:
+
+- 2 non-filterer rocks that cost 2 mana and add one mana of any color (WUBRG)
+- 1 filterer rock that costs 1 mana and allows converting any mana source to any color
+- 1 non-filterer rock that costs 3 mana and adds one colorless mana
+
 ### Settings
 
 | Setting                   | Type    | Default | Description                                           |
@@ -171,6 +213,9 @@ SPELLS
 CYCLERS
 W 3 2
 
+ROCKS
+{2} WUBRG 2
+
 SETTINGS
 cycles 10000
 play true
@@ -180,7 +225,7 @@ deck_size 60
 ## Example Output
 
 ```
-Running simulation with 29 lands and 2 cycler(s) and 2 target spell(s)...
+Running simulation with 29 lands and 2 cycler(s) and 2 rock(s) and 2 target spell(s)...
 Monte Carlo cycles: 10000
 On the play
 

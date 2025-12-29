@@ -5,7 +5,7 @@ Input file parsing for Magic: the Gathering mana base simulation.
 import sys
 from typing import List, Dict, Tuple
 
-from mtg_classes import Land, ManaCost, ManaProduction, Cycler, LAND_TYPES
+from mtg_classes import Land, ManaCost, ManaProduction, Cycler, Rock, LAND_TYPES
 
 
 def _parse_land_line(line: str, line_num: int, lands: List[Land]):
@@ -82,6 +82,44 @@ def _parse_cycler_line(line: str, line_num: int, cyclers: List[Cycler]):
         sys.exit(1)
 
 
+def _parse_rock_line(line: str, line_num: int, rocks: List[Rock]):
+    """Parse a single rock line and add to rocks list."""
+    try:
+        parts = line.split()
+        if len(parts) < 3:
+            raise ValueError("Rock line must have: <mana_cost> <mana_output> <count> [isFilterer]")
+
+        cost_str = parts[0]
+        production_str = parts[1]
+        count = int(parts[2])
+        is_filterer = False
+
+        # Check for optional isFilterer parameter
+        if len(parts) >= 4:
+            filterer_str = parts[3].lower()
+            if filterer_str in ['true', 't', '1', 'yes', 'y']:
+                is_filterer = True
+            elif filterer_str in ['false', 'f', '0', 'no', 'n']:
+                is_filterer = False
+            else:
+                raise ValueError(f"Invalid boolean value for isFilterer: {filterer_str}")
+
+        if count <= 0:
+            raise ValueError("Count must be a positive integer")
+
+        cost = ManaCost(cost_str)
+        production = ManaProduction(production_str)
+
+        for _ in range(count):
+            rocks.append(Rock(cost, production, is_filterer, 1))
+
+    except (ValueError, IndexError) as e:
+        print(f"Error parsing rock at line {line_num}: {line}")
+        print(f"  {str(e)}")
+        print("Run with --help (-h) flag for usage instructions.")
+        sys.exit(1)
+
+
 def _parse_setting_line(line: str, line_num: int, settings: Dict, settings_provided: set):
     """Parse a single setting line and update settings dict."""
     try:
@@ -120,8 +158,8 @@ def _parse_setting_line(line: str, line_num: int, settings: Dict, settings_provi
         sys.exit(1)
 
 
-def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cycler], Dict[str, any]]:
-    """Parse the input file and return lands, spells, cyclers, and settings."""
+def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cycler], List[Rock], Dict[str, any]]:
+    """Parse the input file and return lands, spells, cyclers, rocks, and settings."""
     try:
         with open(filename, 'r') as f:
             all_lines = [line.strip() for line in f]
@@ -133,6 +171,7 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
     lands = []
     spells = []
     cyclers = []
+    rocks = []
     settings = {
         'cycles': 20000,
         'play': True,
@@ -142,7 +181,7 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
     settings_provided = set()  # Track which settings were explicitly provided
 
     # Check if file uses headers or paragraph breaks
-    has_headers = any(line.upper() in ['LANDS', 'SPELLS', 'CYCLERS', 'SETTINGS'] for line in all_lines if line.strip())
+    has_headers = any(line.upper() in ['LANDS', 'SPELLS', 'CYCLERS', 'ROCKS', 'SETTINGS'] for line in all_lines if line.strip())
 
     if has_headers:
         # Use header-based parsing
@@ -163,6 +202,9 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
             elif line_upper == 'CYCLERS':
                 current_section = 'cyclers'
                 continue
+            elif line_upper == 'ROCKS':
+                current_section = 'rocks'
+                continue
             elif line_upper == 'SETTINGS':
                 current_section = 'settings'
                 continue
@@ -173,6 +215,8 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
                 _parse_spell_line(line, line_num, spells)
             elif current_section == 'cyclers':
                 _parse_cycler_line(line, line_num, cyclers)
+            elif current_section == 'rocks':
+                _parse_rock_line(line, line_num, rocks)
             elif current_section == 'settings':
                 _parse_setting_line(line, line_num, settings, settings_provided)
     else:
@@ -191,7 +235,7 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
         if current_paragraph:
             paragraphs.append(current_paragraph)
 
-        # First paragraph = lands, second = spells, third = cyclers (optional), fourth = settings (optional)
+        # First paragraph = lands, second = spells, third = cyclers (optional), fourth = rocks (optional), fifth = settings (optional)
         line_num = 0
         for para_idx, paragraph in enumerate(paragraphs):
             for line in paragraph:
@@ -203,6 +247,8 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
                 elif para_idx == 2:
                     _parse_cycler_line(line, line_num, cyclers)
                 elif para_idx == 3:
+                    _parse_rock_line(line, line_num, rocks)
+                elif para_idx == 4:
                     _parse_setting_line(line, line_num, settings, settings_provided)
 
     if not lands:
@@ -229,4 +275,4 @@ def parse_input_file(filename: str) -> Tuple[List[Land], List[ManaCost], List[Cy
         # Only draw was provided, set play to opposite
         settings['play'] = not settings['draw']
 
-    return lands, spells, cyclers, settings
+    return lands, spells, cyclers, rocks, settings

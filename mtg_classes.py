@@ -525,9 +525,31 @@ class Cycler:
 
     @staticmethod
     def validate_production(production: ManaProduction) -> None:
-        """Validate that cycler produces only one color (basic type)."""
-        if len(production.get_all_colors()) != 1:
-            raise ValueError("Cyclers must produce exactly one color (basic type)")
+        """Validate that cycler production is valid."""
+        # Cyclers can produce any valid color combination
+        pass
+
+
+class Rock:
+    """
+    Rock: A mana-producing permanent that can be cast and then produces mana.
+    Filterer rocks convert existing mana; non-filterer rocks add mana.
+    """
+
+    def __init__(self, cost: ManaCost, production: ManaProduction, is_filterer: bool, count: int):
+        """
+        Initialize a rock.
+
+        Args:
+            cost: The mana cost to cast this rock
+            production: The mana this rock can produce/enable
+            is_filterer: If True, converts mana; if False, adds mana
+            count: Number of these rocks in the deck
+        """
+        self.cost = cost
+        self.production = production
+        self.is_filterer = is_filterer
+        self.count = count
 
 
 # Map of land type names to classes

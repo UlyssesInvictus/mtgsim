@@ -8,7 +8,7 @@ from typing import List, Dict
 
 from mtg_classes import (
     Land, ManaCost, SlowLand, MultiversalLand, WildsLand,
-    FabledLand, StartingTownLand, BasicLand, Cycler
+    FabledLand, StartingTownLand, BasicLand, Cycler, Rock
 )
 
 
@@ -29,8 +29,9 @@ class GameState:
 
         self.hand = []
         self.lands_in_play = []
+        self.rocks_in_play = []  # Rocks that have been cast
         self.played_land_this_turn = False
-        self.cycled_lands_this_turn = []  # Track lands cycled this turn (enter tapped)
+        self.rock_cast_this_turn = None  # The rock cast this turn (for cost deduction)
         self.turn = 0
         self.on_play = on_play
         self.mulligans_taken = 0
@@ -48,7 +49,7 @@ class GameState:
         """Start a new turn."""
         self.turn += 1
         self.played_land_this_turn = False
-        self.cycled_lands_this_turn = []
+        self.rock_cast_this_turn = None
 
         # Draw a card (skip first draw if on the play)
         if not (self.on_play and self.turn == 1):
@@ -163,20 +164,120 @@ class GameState:
         """Check if we can cast a spell with the given cost."""
         # Get available mana sources (each land produces 1 mana of its available colors)
         mana_sources = []
+        filterer_colors = set()  # Colors available via filterer rocks
 
+        # Add mana from lands
         for i, land in enumerate(self.lands_in_play):
             just_played = (i == len(self.lands_in_play) - 1 and self.played_land_this_turn)
-            # Also check if this land was cycled this turn (enters tapped)
-            just_cycled = land in self.cycled_lands_this_turn
-            colors = land.get_available_mana(self.lands_in_play[:i], just_played or just_cycled)
+            colors = land.get_available_mana(self.lands_in_play[:i], just_played)
             if colors:  # Land can produce mana
                 mana_sources.append(colors)
 
-        # Try to pay the cost
+        # Add mana from rocks (excluding the one just cast)
+        for rock in self.rocks_in_play:
+            # Skip the rock cast this turn when adding to mana sources initially
+            # (we'll add it back after deducting its cost)
+            if rock == self.rock_cast_this_turn:
+                continue
+
+            if rock.is_filterer:
+                # Filterer rocks enable color conversion
+                filterer_colors.update(rock.production.get_all_colors())
+            else:
+                # Non-filterer rocks add mana
+                mana_sources.append(rock.production.get_all_colors())
+
+        # If we have filterer rocks, expand mana sources to include filterer colors
+        if filterer_colors:
+            expanded_sources = []
+            for source_colors in mana_sources:
+                # Each source can now also produce filterer colors
+                expanded_colors = source_colors | filterer_colors
+                expanded_sources.append(expanded_colors)
+            mana_sources = expanded_sources
+
+        # If a rock was cast this turn, first spend mana on its cost
+        used_sources = []
+        if self.rock_cast_this_turn:
+            rock_cost = self.rock_cast_this_turn.cost
+            # Try to pay for the rock
+            rock_remaining_generic = rock_cost.generic
+            rock_needed_colored = dict(rock_cost.colored)
+            rock_remaining_hybrid = list(rock_cost.hybrid)
+
+            # Pay colored costs for rock
+            for color, count in list(rock_needed_colored.items()):
+                sources_found = 0
+                for idx, source_colors in enumerate(mana_sources):
+                    if idx in used_sources:
+                        continue
+                    if color in source_colors:
+                        used_sources.append(idx)
+                        sources_found += 1
+                        if sources_found >= count:
+                            break
+
+                if sources_found < count:
+                    return False  # Can't afford the rock
+                del rock_needed_colored[color]
+
+            # Handle hybrid costs for rock
+            for generic_cost, color_part in rock_remaining_hybrid:
+                paid = False
+                if '/' in color_part:
+                    colors = color_part.split('/')
+                    for idx, source_colors in enumerate(mana_sources):
+                        if idx in used_sources:
+                            continue
+                        if any(c in source_colors for c in colors):
+                            used_sources.append(idx)
+                            paid = True
+                            break
+                else:
+                    for idx, source_colors in enumerate(mana_sources):
+                        if idx in used_sources:
+                            continue
+                        if color_part in source_colors:
+                            used_sources.append(idx)
+                            paid = True
+                            break
+
+                if not paid:
+                    rock_remaining_generic += generic_cost - 1 if generic_cost > 0 else 0
+
+            # Pay generic for rock
+            available_for_generic = len(mana_sources) - len(used_sources)
+            if available_for_generic < rock_remaining_generic:
+                return False  # Can't afford the rock
+
+            # Spend the generic mana
+            for _ in range(rock_remaining_generic):
+                for idx in range(len(mana_sources)):
+                    if idx not in used_sources:
+                        used_sources.append(idx)
+                        break
+
+            # Now add the rock's mana production (it's in play now)
+            if self.rock_cast_this_turn.is_filterer:
+                # Add filterer colors to all remaining sources
+                filterer_colors.update(self.rock_cast_this_turn.production.get_all_colors())
+                # Re-expand sources
+                expanded_sources = []
+                for idx, source_colors in enumerate(mana_sources):
+                    if idx in used_sources:
+                        expanded_sources.append(source_colors)  # Already used
+                    else:
+                        expanded_colors = source_colors | filterer_colors
+                        expanded_sources.append(expanded_colors)
+                mana_sources = expanded_sources
+            else:
+                # Add non-filterer rock's mana
+                mana_sources.append(self.rock_cast_this_turn.production.get_all_colors())
+
+        # Now try to pay the spell cost with remaining mana
         remaining_generic = cost.generic
         needed_colored = dict(cost.colored)
         remaining_hybrid = list(cost.hybrid)
-        used_sources = []
 
         # First, pay specific colored costs
         for color, count in list(needed_colored.items()):
@@ -435,24 +536,34 @@ class GameState:
         for cycler in cyclers_in_hand:
             # Check if we have enough lands to cycle
             if len(self.lands_in_play) >= cycler.cycling_cost:
-                # Get the color this cycler produces
+                # Get the colors this cycler can produce
                 colors = cycler.production.get_all_colors()
-                if len(colors) != 1:
-                    continue  # Should not happen due to validation, but be safe
 
-                color = list(colors)[0]
-
-                # Check if we have a basic of this color in the deck
+                # Check which colors have available basics
                 available_basics = self._get_available_basics()
-                if available_basics[color] <= 0:
+                fetchable_colors = [c for c in colors if available_basics[c] > 0]
+
+                if not fetchable_colors:
                     continue  # Can't cycle if no basics available
+
+                # Choose which color to fetch using the same heuristic as choice lands
+                # Create a dummy land to use the choose_color method
+                from mtg_classes import BasicLand
+                dummy_land = BasicLand(cycler.production, 1)
+                chosen_color = dummy_land.choose_color(
+                    self.lands_in_play, self.hand, target_costs,
+                    available_colors=set(fetchable_colors)
+                )
+
+                if not chosen_color:
+                    continue
 
                 # Find and fetch the basic from the deck
                 fetched_basic = None
                 for i, card in enumerate(self.deck):
                     if card and isinstance(card, BasicLand):
                         card_colors = card.production.get_all_colors()
-                        if len(card_colors) == 1 and color in card_colors:
+                        if len(card_colors) == 1 and chosen_color in card_colors:
                             # Remove this basic from the deck
                             fetched_basic = self.deck.pop(i)
                             # Shuffle deck after fetching
@@ -463,28 +574,45 @@ class GameState:
                     # Remove cycler from hand
                     self.hand.remove(cycler)
 
-                    # Add the fetched basic to lands in play
-                    self.lands_in_play.append(fetched_basic)
+                    # Add the fetched basic to hand (not in play)
+                    self.hand.append(fetched_basic)
 
-                    # Mark it as cycled this turn (enters tapped)
-                    self.cycled_lands_this_turn.append(fetched_basic)
+    def cast_rocks(self, target_costs: List[ManaCost]) -> bool:
+        """
+        Try to cast rocks from hand.
+        Returns True if a rock was cast.
+        Cast as soon as possible, but after land play and cycling.
+        """
+        rocks_in_hand = [card for card in self.hand if isinstance(card, Rock)]
+
+        for rock in rocks_in_hand:
+            # Check if we can afford to cast this rock
+            if self.can_cast_spell(rock.cost):
+                # Cast the rock
+                self.hand.remove(rock)
+                self.rocks_in_play.append(rock)
+                self.rock_cast_this_turn = rock
+                return True
+
+        return False
 
 
-def run_simulation(lands: List[Land], spells: List[ManaCost], cyclers: List[Cycler],
+def run_simulation(lands: List[Land], spells: List[ManaCost], cyclers: List[Cycler], rocks: List[Rock],
                    max_turn: int, cycles: int, deck_size: int = 60,
                    on_play: bool = True) -> List[Dict[int, float]]:
     """
     Run Monte Carlo simulation.
     Returns list of dicts (one per spell) mapping turn -> success probability.
     """
-    # Build full deck with lands, cyclers, and non-lands (represented as None)
+    # Build full deck with lands, cyclers, rocks, and non-lands (represented as None)
     num_lands = len(lands)
     num_cyclers = len(cyclers)
-    num_nonlands = deck_size - num_lands - num_cyclers
+    num_rocks = len(rocks)
+    num_nonlands = deck_size - num_lands - num_cyclers - num_rocks
     if num_nonlands < 0:
-        raise ValueError(f"Too many lands ({num_lands}) and cyclers ({num_cyclers}) for deck size ({deck_size})")
+        raise ValueError(f"Too many lands ({num_lands}), cyclers ({num_cyclers}), and rocks ({num_rocks}) for deck size ({deck_size})")
 
-    full_deck = lands + cyclers + [None] * num_nonlands
+    full_deck = lands + cyclers + rocks + [None] * num_nonlands
 
     # Track success by spell and turn
     success_by_spell_turn = [defaultdict(int) for _ in spells]
@@ -503,6 +631,8 @@ def run_simulation(lands: List[Land], spells: List[ManaCost], cyclers: List[Cycl
             # Cycle eligible cyclers before deciding which land to play
             game.cycle_cyclers(spells)
             game.play_land_optimally(spells)
+            # Cast rocks after land play
+            game.cast_rocks(spells)
 
             # Check each spell individually
             for spell_idx, cost in enumerate(spells):

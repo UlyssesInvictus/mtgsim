@@ -24,7 +24,7 @@ USAGE:
 
 INPUT FILE FORMAT:
 
-Section headers (LANDS, SPELLS, CYCLERS, SETTINGS) are optional. Use blank lines to
+Section headers (LANDS, SPELLS, CYCLERS, ROCKS, SETTINGS) are optional. Use blank lines to
 separate sections if headers are omitted.
 
     <land_type> <mana_production> <count>
@@ -34,6 +34,9 @@ separate sections if headers are omitted.
     ...
 
     <mana_production> <cycling_cost> <count>
+    ...
+
+    <mana_cost> <mana_output> <count> [isFilterer]
     ...
 
     <setting_name> <value>
@@ -52,6 +55,11 @@ CYCLERS:
     Cards that convert to basics when enough lands are in play
     cycling_cost = number of lands needed in play to cycle
 
+ROCKS:
+    Mana-producing artifacts that can be cast and then produce mana
+    isFilterer (optional): true = converts mana, false/omitted = adds mana
+    Cast after land play, cost deducted from available mana
+
 SETTINGS:
     cycles <number>        - Monte Carlo iterations (default: 20000)
     play <true/false>      - On the play (default: true)
@@ -66,6 +74,9 @@ EXAMPLE:
     2UW
 
     W 3 2
+
+    {2} WUBRG 2
+    {1} WUBRG 1 true
 
     cycles 10000
 
@@ -88,21 +99,23 @@ def main():
         sys.exit(0)
 
     # Parse input file
-    lands, spells, cyclers, settings = parse_input_file(args.filename)
+    lands, spells, cyclers, rocks, settings = parse_input_file(args.filename)
     cycles = settings.get('cycles', 20000)
     on_play = settings.get('play', True)
     deck_size = settings.get('deck_size', 60)
 
     cycler_count = len(cyclers)
+    rock_count = len(rocks)
     cycler_msg = f" and {cycler_count} cycler(s)" if cycler_count > 0 else ""
-    print(f"Running simulation with {len(lands)} lands{cycler_msg} and {len(spells)} target spell(s)...")
+    rock_msg = f" and {rock_count} rock(s)" if rock_count > 0 else ""
+    print(f"Running simulation with {len(lands)} lands{cycler_msg}{rock_msg} and {len(spells)} target spell(s)...")
     print(f"Monte Carlo cycles: {cycles}")
     print(f"On the {'play' if on_play else 'draw'}")
     print()
 
     # Run simulation for turns 1-10
     max_turn = 10
-    probabilities_per_spell = run_simulation(lands, spells, cyclers, max_turn, cycles,
+    probabilities_per_spell = run_simulation(lands, spells, cyclers, rocks, max_turn, cycles,
                                             deck_size=deck_size, on_play=on_play)
 
     # Print results for each spell

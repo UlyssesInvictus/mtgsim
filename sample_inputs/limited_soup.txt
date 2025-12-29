@@ -4,16 +4,24 @@ tapped UG 1
 tapped UB 1
 tapped GR 1
 basic G 7
-basic U 4
-basic R 2
+basic U 3
+basic W 1
+basic R 1
+basic B 1
 
 CYCLERS
 WUBRG 2 1
 U 2 1
 
+ROCKS
+1G WUBRG 1
+1 WUBRG 1 true
+
 SPELLS
 UG
+2WUU
 2RR
+4BB
 
 SETTINGS
 draw true
